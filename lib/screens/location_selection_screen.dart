@@ -162,6 +162,9 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
           // List
           Expanded(
             child: ListView.builder(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).padding.bottom + 20, // Add bottom padding for system bar
+              ),
               itemCount: dataList.length,
               itemBuilder: (context, index) {
                 final country = dataList[index];

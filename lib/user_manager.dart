@@ -7,7 +7,8 @@ class UserManager {
   UserManager._internal();
 
   // Balance (MMK) - 1 Ad = 30 MMK
-  final ValueNotifier<int> balanceMMK = ValueNotifier(0);
+  // Test Balance: 100,000 MMK
+  final ValueNotifier<int> balanceMMK = ValueNotifier(100000);
   
   // VPN Remaining Time (Seconds)
   final ValueNotifier<int> remainingSeconds = ValueNotifier(0);

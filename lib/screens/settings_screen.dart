@@ -42,7 +42,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final iconColor = isDark ? Colors.grey : Colors.black54;
 
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: MediaQuery.of(context).padding.bottom + 20, // Add bottom padding for system bar
+            ),
             children: [
               _buildSectionHeader('Account'),
               Container(
@@ -71,19 +76,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ),
-                    GestureDetector(
+                    InkWell(
                       onTap: () {
                         Clipboard.setData(const ClipboardData(text: '19a070***04eef7'));
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('ID copied to clipboard')),
                         );
                       },
-                      child: const Row(
-                        children: [
-                          Text('Copy', style: TextStyle(color: Colors.grey)),
-                          SizedBox(width: 4),
-                          Icon(Icons.copy, size: 16, color: Colors.grey),
-                        ],
+                      child: const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Copy', style: TextStyle(color: Colors.grey)),
+                            SizedBox(width: 4),
+                            Icon(Icons.copy, size: 16, color: Colors.grey),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -197,15 +206,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      GestureDetector(
+                      InkWell(
                         onTap: () => themeNotifier.value = ThemeMode.light,
                         child: _buildThemeOption(Icons.light_mode, currentThemeMode == ThemeMode.light),
                       ),
-                      GestureDetector(
+                      InkWell(
                         onTap: () => themeNotifier.value = ThemeMode.dark,
                         child: _buildThemeOption(Icons.dark_mode, currentThemeMode == ThemeMode.dark),
                       ),
-                      GestureDetector(
+                      InkWell(
                         onTap: () => themeNotifier.value = ThemeMode.system,
                         child: _buildThemeOption(Icons.settings_brightness, currentThemeMode == ThemeMode.system),
                       ),
@@ -243,28 +252,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                 onTap: () => _showNotImplemented('Share'),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.grey),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Version',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey
+              InkWell(
+                onTap: () => _showNotImplemented('Version Info'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Version',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey
+                        ),
                       ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      'V1.0.8 (latest)',
-                      style: TextStyle(color: Colors.grey.shade500),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                  ],
+                      const Spacer(),
+                      Text(
+                        'V1.0.8 (latest)',
+                        style: TextStyle(color: Colors.grey.shade500),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -298,11 +310,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final textColor = isDark ? Colors.white : Colors.black;
     final iconColor = isDark ? Colors.grey : Colors.black87;
 
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        color: Colors.transparent, // For hit testing
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           children: [
             Icon(icon, color: iconColor),
