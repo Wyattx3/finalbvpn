@@ -40,28 +40,36 @@ class _RewardsScreenState extends State<RewardsScreen> {
         statusBarIconBrightness: Brightness.light, // White icons for dark background
         statusBarBrightness: Brightness.dark, // iOS
       ),
-      child: Scaffold(
-      backgroundColor: const Color(0xFF9575CD), // Soft purple (lighter)
-      resizeToAvoidBottomInset: true, // Handle keyboard overlay
-      appBar: AppBar(
-        title: const Text('My Rewards', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const WithdrawHistoryScreen()),
-              );
-            },
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF7E57C2), Color(0xFFB39DDB)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
+        ),
+        child: Scaffold(
+        backgroundColor: Colors.transparent, // Transparent to show gradient
+        resizeToAvoidBottomInset: true, // Handle keyboard overlay
+        appBar: AppBar(
+          title: const Text('My Rewards', style: TextStyle(color: Colors.white)),
+          backgroundColor: Colors.transparent,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.history, color: Colors.white),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const WithdrawHistoryScreen()),
+                );
+              },
+            ),
+          ],
+        ),
       body: ValueListenableBuilder<int>(
         valueListenable: _userManager.balanceMMK,
         builder: (context, balance, child) {
@@ -168,7 +176,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                           child: ElevatedButton(
                             onPressed: () => _handleWithdraw(balance, usdValue),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepPurple,
+                              backgroundColor: const Color(0xFF9575CD), // Soft purple
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(15),
@@ -199,6 +207,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
             ],
           );
         },
+      ),
       ),
       ),
     );
