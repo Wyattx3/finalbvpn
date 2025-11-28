@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'settings_screen.dart';
 import 'location_selection_screen.dart';
 import 'rewards_screen.dart';
@@ -21,10 +22,17 @@ class _HomeScreenState extends State<HomeScreen> {
   String currentFlag = '🇺🇸';
   
   final UserManager _userManager = UserManager();
+  static const platform = MethodChannel('com.example.vpn_app/notification');
 
   @override
   void initState() {
     super.initState();
+    
+    // Request permission immediately
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestPermission();
+    });
+
     _userManager.onTimeExpired = () {
       if (mounted && isConnected) {
         setState(() {
@@ -33,14 +41,44 @@ class _HomeScreenState extends State<HomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Time expired! Watch ads to reconnect.')),
         );
+        _stopNotification();
       }
     };
+  }
+
+  Future<void> _requestPermission() async {
+    try {
+      await platform.invokeMethod('requestPermission');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to request permission: '${e.message}'.");
+    }
   }
 
   @override
   void dispose() {
     _userManager.stopTimer();
+    _stopNotification();
     super.dispose();
+  }
+  
+  Future<void> _startNotification() async {
+    try {
+      await platform.invokeMethod('startNotification', {
+        'location': currentLocation,
+        'flag': currentFlag,
+        'remaining_seconds': _userManager.remainingSeconds.value,
+      });
+    } on PlatformException catch (e) {
+      debugPrint("Failed to start notification: '${e.message}'.");
+    }
+  }
+
+  Future<void> _stopNotification() async {
+    try {
+      await platform.invokeMethod('stopNotification');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to stop notification: '${e.message}'.");
+    }
   }
 
   void _toggleConnection() {
@@ -51,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         isConnected = false;
       });
+      _stopNotification();
     } else {
       if (_userManager.remainingSeconds.value > 0) {
         _simulateConnection();
@@ -72,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
           isConnected = true;
         });
         _userManager.startTimer();
+        _startNotification();
       }
     });
   }

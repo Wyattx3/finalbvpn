@@ -129,13 +129,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildBottomControls(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.all(24),
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // Indicators
-          Row(
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
             children: List.generate(
               _pages.length,
               (index) => AnimatedContainer(
@@ -152,6 +155,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
           ),
+            ),
+            
+            const SizedBox(width: 16),
           
           // Next/Get Started Button
           ElevatedButton(
@@ -170,6 +176,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
