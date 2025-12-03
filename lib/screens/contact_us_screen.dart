@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/mock_sdui_service.dart';
+import '../utils/message_dialog.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -9,9 +11,15 @@ class ContactUsScreen extends StatefulWidget {
 }
 
 class _ContactUsScreenState extends State<ContactUsScreen> {
+  final MockSduiService _sduiService = MockSduiService();
+  
   final TextEditingController _subjectController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   String selectedCategory = 'General Inquiry';
+
+  // SDUI Config
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
 
   final List<String> categories = [
     'General Inquiry',
@@ -24,6 +32,31 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('contact_us');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   void dispose() {
     _subjectController.dispose();
     _messageController.dispose();
@@ -32,14 +65,23 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade50;
+    
+    final contactEmail = _config['email'] ?? 'support@vpnapp.com';
+    final telegramHandle = _config['telegram'] ?? '@vpnapp_support';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Contact Us'),
+        title: Text(_config['title'] ?? 'Contact Us'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
@@ -73,11 +115,14 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   child: _buildContactCard(
                     icon: Icons.email_outlined,
                     title: 'Email',
-                    subtitle: 'support@vpnapp.com',
+                    subtitle: contactEmail,
                     onTap: () {
-                      Clipboard.setData(const ClipboardData(text: 'support@vpnapp.com'));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Email copied to clipboard')),
+                      Clipboard.setData(ClipboardData(text: contactEmail));
+                      showMessageDialog(
+                        context,
+                        message: 'Email copied to clipboard',
+                        type: MessageType.success,
+                        title: 'Copied',
                       );
                     },
                     cardColor: cardColor,
@@ -90,10 +135,13 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   child: _buildContactCard(
                     icon: Icons.telegram,
                     title: 'Telegram',
-                    subtitle: '@vpnapp_support',
+                    subtitle: telegramHandle,
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Opening Telegram...')),
+                      showMessageDialog(
+                        context,
+                        message: 'Opening Telegram...',
+                        type: MessageType.info,
+                        title: 'Telegram',
                       );
                     },
                     cardColor: cardColor,
@@ -112,8 +160,11 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     title: 'Live Chat',
                     subtitle: '24/7 Support',
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Starting live chat...')),
+                      showMessageDialog(
+                        context,
+                        message: 'Starting live chat...',
+                        type: MessageType.info,
+                        title: 'Live Chat',
                       );
                     },
                     cardColor: cardColor,
@@ -128,8 +179,11 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     title: 'FAQ',
                     subtitle: 'Common Questions',
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Opening FAQ...')),
+                      showMessageDialog(
+                        context,
+                        message: 'Opening FAQ...',
+                        type: MessageType.info,
+                        title: 'FAQ',
                       );
                     },
                     cardColor: cardColor,
@@ -357,37 +411,24 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
   void _submitForm() {
     if (_subjectController.text.isEmpty || _messageController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all fields')),
+      showMessageDialog(
+        context,
+        message: 'Please fill in all fields',
+        type: MessageType.error,
+        title: 'Missing Information',
       );
       return;
     }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 28),
-            SizedBox(width: 12),
-            Text('Message Sent!'),
-          ],
-        ),
-        content: const Text(
-          'Thank you for contacting us. We will get back to you within 24 hours.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
+    showMessageDialog(
+      context,
+      message: 'Thank you for contacting us. We will get back to you within 24 hours.',
+      type: MessageType.success,
+      title: 'Message Sent!',
     );
+    
+    // Clear form after successful submission
+    _subjectController.clear();
+    _messageController.clear();
   }
 }
-

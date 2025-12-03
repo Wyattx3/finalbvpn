@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../user_manager.dart';
+import '../services/mock_sdui_service.dart';
+import '../utils/message_dialog.dart';
 import 'withdraw_success_screen.dart';
 import 'withdraw_history_screen.dart';
 
@@ -12,11 +14,45 @@ class RewardsScreen extends StatefulWidget {
 }
 
 class _RewardsScreenState extends State<RewardsScreen> {
+  final MockSduiService _sduiService = MockSduiService();
+  final UserManager _userManager = UserManager();
+  
   bool isMMK = true;
-  String? selectedPaymentMethod; // "Kpay", "Wave"
+  String? selectedPaymentMethod; 
   final TextEditingController _accountNameController = TextEditingController();
   final TextEditingController _accountNumberController = TextEditingController(text: '09');
-  final UserManager _userManager = UserManager();
+  
+  // SDUI Config
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
+  List<String> _paymentMethods = ['KBZ Pay', 'Wave Pay']; // Default fallback
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('rewards');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          final config = response['config'];
+          setState(() {
+            _config = config;
+            _paymentMethods = List<String>.from(config['payment_methods'] ?? ['KBZ Pay', 'Wave Pay']);
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   String _formatNumber(int number) {
     String numStr = number.toString();
@@ -34,11 +70,25 @@ class _RewardsScreenState extends State<RewardsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final labels = _config['labels'] ?? {};
+    final minWithdrawMMK = _config['min_withdraw_mmk'] ?? 20000;
+    final minWithdrawUSD = (_config['min_withdraw_usd'] ?? 20.0).toDouble();
+
+    // Screen Height calculation for responsive layout
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isSmallScreen = screenHeight < 700;
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light, // White icons for dark background
-        statusBarBrightness: Brightness.dark, // iOS
+        statusBarIconBrightness: Brightness.light, 
+        statusBarBrightness: Brightness.dark, 
       ),
       child: Container(
         decoration: const BoxDecoration(
@@ -49,166 +99,210 @@ class _RewardsScreenState extends State<RewardsScreen> {
           ),
         ),
         child: Scaffold(
-        backgroundColor: Colors.transparent, // Transparent to show gradient
-        resizeToAvoidBottomInset: true, // Handle keyboard overlay
-        appBar: AppBar(
-          title: const Text('My Rewards', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.transparent,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.history, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const WithdrawHistoryScreen()),
-                );
-              },
+          resizeToAvoidBottomInset: false, // Fixed Position
+          appBar: AppBar(
+            title: Text(_config['title'] ?? 'My Rewards', style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
             ),
-          ],
-        ),
-      body: ValueListenableBuilder<int>(
-        valueListenable: _userManager.balanceMMK,
-        builder: (context, balance, child) {
-          double usdValue = balance / 4500;
-          final formattedBalance = _formatNumber(balance);
-
-          return Column(
-            children: [
-              // Top Balance Section (Fixed)
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 30),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Total Balance',
-                      style: TextStyle(color: Colors.white70, fontSize: 16),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      isMMK ? '$formattedBalance MMK' : '\$${usdValue.toStringAsFixed(2)} USD',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.history, color: Colors.white),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const WithdrawHistoryScreen()),
+                  );
+                },
               ),
+            ],
+          ),
+          body: ValueListenableBuilder<int>(
+            valueListenable: _userManager.balancePoints,
+            builder: (context, points, child) {
+              final int balanceMMK = points;
+              final double usdValue = points / 4500;
+              final formattedPoints = _formatNumber(points);
+              
+              // Get keyboard height
+              final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
-              // Bottom Form Section (Expanded & Scrollable if needed)
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-                  ),
-                  child: SingleChildScrollView(
+              return Column(
+                children: [
+                  // Top Balance Section (Fixed but smaller)
+                  SizedBox(
+                    height: isSmallScreen ? 140 : 180, // Reduced height
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Currency Toggle
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildTabButton('MMK', true),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: _buildTabButton('USD', false),
-                            ),
-                          ],
+                        Text(
+                          labels['balance_label'] ?? 'Total Points',
+                          style: const TextStyle(color: Colors.white70, fontSize: 14),
                         ),
-                        const SizedBox(height: 30),
-
-                        // Form Fields
-                        if (isMMK) ...[
-                          _buildLabel('Payment Method'),
-                          const SizedBox(height: 10),
-                          DropdownButtonFormField<String>(
-                            value: selectedPaymentMethod,
-                            hint: const Text('Select Wallet'),
-                            decoration: _inputDecoration(Icons.account_balance_wallet),
-                            items: ['KBZ Pay', 'Wave Pay'].map((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Text(value),
-                              );
-                            }).toList(),
-                            onChanged: (val) {
-                              setState(() {
-                                selectedPaymentMethod = val;
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 20),
-                        ],
-
-                        _buildLabel('Account Name'),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _accountNameController,
-                          decoration: _inputDecoration(Icons.person),
-                        ),
-                        
-                        const SizedBox(height: 20),
-
-                        _buildLabel(isMMK ? 'Phone Number' : 'PayPal Email'),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _accountNumberController,
-                          keyboardType: isMMK ? TextInputType.phone : TextInputType.emailAddress,
-                          inputFormatters: isMMK ? [FilteringTextInputFormatter.digitsOnly] : [],
-                          decoration: _inputDecoration(isMMK ? Icons.phone : Icons.email),
-                        ),
-
-                        const SizedBox(height: 30),
-
-                        // Withdraw Button
-                        SizedBox(
-                          width: double.infinity,
-                          height: 55,
-                          child: ElevatedButton(
-                            onPressed: () => _handleWithdraw(balance, usdValue),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF9575CD), // Soft purple
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: const Text(
-                              'Withdraw Now',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
+                        const SizedBox(height: 4),
+                        // Show Points Main
+                        Text(
+                          formattedPoints, 
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isSmallScreen ? 36 : 42, // Smaller font
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        
-                        const SizedBox(height: 20),
-                        Center(
-                          child: Text(
-                            isMMK 
-                              ? 'Min: 20,000 MMK'
-                              : 'Min: \$20.00 USD',
-                            style: TextStyle(color: Colors.grey.shade500),
+                        const SizedBox(height: 4),
+                        // Show Equivalent Value
+                        Text(
+                          '≈ ${_formatNumber(balanceMMK)} MMK / \$${usdValue.toStringAsFixed(2)} USD',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '1 Point = 1 MMK | 4500 Points = 1 USD',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 11,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-      ),
+
+                  // Bottom Form Section
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: bottomPadding),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                        ),
+                        child: Column(
+                          children: [
+                            // Scrollable Form Content
+                            Expanded(
+                              child: SingleChildScrollView(
+                                physics: const ClampingScrollPhysics(),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Currency Toggle
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _buildTabButton('MMK', true),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: _buildTabButton('USD', false),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 20),
+
+                                    // Form Fields
+                                    if (isMMK) ...[
+                                      _buildLabel('Payment Method'),
+                                      const SizedBox(height: 8),
+                                      DropdownButtonFormField<String>(
+                                        value: selectedPaymentMethod,
+                                        hint: const Text('Select Wallet'),
+                                        decoration: _inputDecoration(Icons.account_balance_wallet),
+                                        items: _paymentMethods.map((String value) {
+                                          return DropdownMenuItem<String>(
+                                            value: value,
+                                            child: Text(value),
+                                          );
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          setState(() {
+                                            selectedPaymentMethod = val;
+                                          });
+                                        },
+                                      ),
+                                      const SizedBox(height: 16),
+                                    ],
+
+                                    _buildLabel('Account Name'),
+                                    const SizedBox(height: 8),
+                                    TextField(
+                                      controller: _accountNameController,
+                                      decoration: _inputDecoration(Icons.person),
+                                    ),
+                                    
+                                    const SizedBox(height: 16),
+
+                                    _buildLabel(isMMK ? 'Phone Number' : 'PayPal Email'),
+                                    const SizedBox(height: 8),
+                                    TextField(
+                                      controller: _accountNumberController,
+                                      keyboardType: isMMK ? TextInputType.phone : TextInputType.emailAddress,
+                                      inputFormatters: isMMK ? [FilteringTextInputFormatter.digitsOnly] : [],
+                                      decoration: _inputDecoration(isMMK ? Icons.phone : Icons.email),
+                                    ),
+
+                                    const SizedBox(height: 20),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            
+                            // Fixed Bottom Button (Inside White Card)
+                            Container(
+                              padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + MediaQuery.of(context).padding.bottom),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border(top: BorderSide(color: Colors.grey.shade100)),
+                              ),
+                              child: Column(
+                                children: [
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 50,
+                                    child: ElevatedButton(
+                                      onPressed: () => _handleWithdraw(points, usdValue, minWithdrawMMK, minWithdrawUSD),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF9575CD),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(15),
+                                        ),
+                                        elevation: 0,
+                                      ),
+                                      child: Text(
+                                        labels['withdraw_button'] ?? 'Withdraw Now',
+                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    isMMK 
+                                      ? 'Min: ${_formatNumber(minWithdrawMMK)} Points'
+                                      : 'Min: \$${minWithdrawUSD.toStringAsFixed(2)} USD',
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -218,22 +312,22 @@ class _RewardsScreenState extends State<RewardsScreen> {
     return GestureDetector(
       onTap: () {
         if (isMMK != isForMMK) {
-        setState(() {
-          isMMK = isForMMK;
-          selectedPaymentMethod = null; // Reset selection
+          setState(() {
+            isMMK = isForMMK;
+            selectedPaymentMethod = null; // Reset selection
             if (isMMK) {
               _accountNumberController.text = '09';
             } else {
               _accountNumberController.clear();
             }
-        });
+          });
         }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 15),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: isSelected ? Colors.deepPurple.withOpacity(0.1) : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(15),
+          borderRadius: BorderRadius.circular(12),
           border: isSelected ? Border.all(color: Colors.deepPurple) : null,
         ),
         child: Center(
@@ -242,6 +336,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
             style: TextStyle(
               color: isSelected ? Colors.deepPurple : Colors.grey,
               fontWeight: FontWeight.bold,
+              fontSize: 14,
             ),
           ),
         ),
@@ -255,70 +350,85 @@ class _RewardsScreenState extends State<RewardsScreen> {
       style: const TextStyle(
         fontWeight: FontWeight.w600,
         color: Colors.black87,
+        fontSize: 13,
       ),
     );
   }
 
   InputDecoration _inputDecoration(IconData icon) {
     return InputDecoration(
-      prefixIcon: Icon(icon, color: Colors.deepPurple),
+      prefixIcon: Icon(icon, color: Colors.deepPurple, size: 20),
       filled: true,
       fillColor: Colors.grey.shade500.withOpacity(0.1),
+      contentPadding: const EdgeInsets.symmetric(vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
       ),
-      contentPadding: const EdgeInsets.symmetric(vertical: 16),
     );
   }
 
-  void _handleWithdraw(int balance, double usdValue) {
+  void _handleWithdraw(int points, double usdValue, int minMMK, double minUSD) {
     if (_accountNameController.text.isEmpty || _accountNumberController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields')),
+      showMessageDialog(
+        context,
+        message: 'Please fill all fields',
+        type: MessageType.error,
+        title: 'Missing Information',
       );
       return;
     }
 
     if (isMMK && selectedPaymentMethod == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a payment method')),
+      showMessageDialog(
+        context,
+        message: 'Please select a payment method',
+        type: MessageType.error,
+        title: 'Payment Method',
       );
       return;
     }
 
-    // Simple Validation for MMK Phone (e.g., starts with 09)
     if (isMMK && !_accountNumberController.text.startsWith('09')) {
-       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Phone number must start with 09')),
+      showMessageDialog(
+        context,
+        message: 'Phone number must start with 09',
+        type: MessageType.error,
+        title: 'Invalid Phone',
       );
       return;
     }
 
     if (isMMK) {
-      if (balance >= 20000) {
+      if (points >= minMMK) {
         _showConfirmationDialog(() {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
-        );
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
+          );
         });
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Insufficient balance. Min 20,000 MMK')),
+        showMessageDialog(
+          context,
+          message: 'Insufficient points. Min ${_formatNumber(minMMK)} Points',
+          type: MessageType.error,
+          title: 'Insufficient Balance',
         );
       }
     } else {
-      if (usdValue >= 20.0) {
+      if (usdValue >= minUSD) {
         _showConfirmationDialog(() {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
-        );
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
+          );
         });
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Insufficient balance. Min \$20 USD')),
+        showMessageDialog(
+          context,
+          message: 'Insufficient balance. Min \$${minUSD.toStringAsFixed(2)} USD',
+          type: MessageType.error,
+          title: 'Insufficient Balance',
         );
       }
     }
@@ -364,7 +474,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.pop(context); // Close dialog
+                        Navigator.pop(context);
                         onConfirm();
                       },
                       style: ElevatedButton.styleFrom(

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'app_selection_screen.dart';
+import 'package:installed_apps/installed_apps.dart';
+import 'package:installed_apps/app_info.dart' as device;
+import 'app_selection_screen.dart' as my_app;
 import '../user_manager.dart';
+import '../services/mock_sdui_service.dart';
 
 class SplitTunnelingScreen extends StatefulWidget {
   const SplitTunnelingScreen({super.key});
@@ -12,35 +15,95 @@ class SplitTunnelingScreen extends StatefulWidget {
 
 class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   final UserManager _userManager = UserManager();
+  final MockSduiService _sduiService = MockSduiService();
   late int _selectedOption;
 
-  List<AppInfo> _selectedAppsForUsesVPN = [];
-  List<AppInfo> _selectedAppsForBypassVPN = [];
+  List<my_app.AppInfo> _selectedAppsForUsesVPN = [];
+  List<my_app.AppInfo> _selectedAppsForBypassVPN = [];
+  List<my_app.AppInfo> _installedApps = [];
+
+  // SDUI Config
+  Map<String, dynamic> _config = {};
+  List<Map<String, dynamic>> _options = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _selectedOption = _userManager.splitTunnelingMode.value;
+    _loadServerConfig();
   }
 
-  // Dummy Apps Data
-  final List<AppInfo> _allApps = [
-    AppInfo('YouTube', 'com.google.youtube', Icons.play_circle_filled, Colors.red),
-    AppInfo('Gmail', 'com.google.gmail', Icons.mail, Colors.redAccent),
-    AppInfo('Chrome', 'com.android.chrome', Icons.public, Colors.blue),
-    AppInfo('Maps', 'com.google.maps', Icons.map, Colors.green),
-    AppInfo('Facebook', 'com.facebook.katana', Icons.facebook, Colors.blue.shade800),
-    AppInfo('Instagram', 'com.instagram.android', Icons.camera_alt, Colors.pink),
-    AppInfo('WhatsApp', 'com.whatsapp', Icons.chat, Colors.green.shade600),
-    AppInfo('Spotify', 'com.spotify.music', Icons.music_note, Colors.greenAccent.shade700),
-    AppInfo('Netflix', 'com.netflix.mediaclient', Icons.movie, Colors.red.shade900),
-    AppInfo('Telegram', 'org.telegram.messenger', Icons.send, Colors.blueAccent),
-    AppInfo('TikTok', 'com.zhiliaoapp.musically', Icons.music_video, Colors.black),
-    AppInfo('Twitter', 'com.twitter.android', Icons.alternate_email, Colors.blue.shade400),
-  ];
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('split_tunneling');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            _options = List<Map<String, dynamic>>.from(_config['options'] ?? []);
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _fetchInstalledApps() async {
+    if (_installedApps.isNotEmpty) return;
+
+    try {
+      // excludeSystemApps: false (include system apps), withIcon: true
+      List<device.AppInfo> apps = await InstalledApps.getInstalledApps(
+        excludeSystemApps: false,
+        withIcon: true,
+      );
+
+      if (mounted) {
+        setState(() {
+          _installedApps = apps
+              .map((app) => my_app.AppInfo(
+                    app.name ?? '',
+                    app.packageName ?? '',
+                    app.icon,
+                    isSystemApp: false, // InstalledApps pkg doesn't easily expose this
+                  ))
+              .toList();
+          
+          _installedApps.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching apps: $e");
+    }
+  }
+
+  IconData _getIconData(String iconName) {
+    switch (iconName) {
+      case 'call_split':
+        return Icons.call_split;
+      case 'filter_list':
+        return Icons.filter_list;
+      case 'block':
+        return Icons.block;
+      default:
+        return Icons.help_outline;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
     final textColor = isDark ? Colors.white : Colors.black;
@@ -53,47 +116,38 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
       ),
       child: Scaffold(
         backgroundColor: backgroundColor,
-      appBar: AppBar(
-        title: const Text('Split Tunneling'),
-        centerTitle: true,
+        appBar: AppBar(
+          title: Text(_config['title'] ?? 'Split Tunneling'),
+          centerTitle: true,
           backgroundColor: backgroundColor,
-        leading: IconButton(
+          leading: IconButton(
             icon: Icon(Icons.arrow_back_ios, color: textColor),
-          onPressed: () => Navigator.pop(context),
-        ),
+            onPressed: () => Navigator.pop(context),
+          ),
           titleTextStyle: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.w600),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _buildOption(
-              index: 0,
-              icon: Icons.call_split,
-              title: 'Disable',
-              subtitle: 'No effect',
-            ),
-            const SizedBox(height: 12),
-            _buildOption(
-              index: 1,
-              icon: Icons.filter_list,
-              title: 'Uses VPN',
-              subtitle: 'Only allows selected applications to use the VPN',
-                showAppsCount: _selectedOption == 1,
-                selectedCount: _selectedAppsForUsesVPN.length,
-                onTapApps: () => _openAppSelection(true),
-            ),
-            const SizedBox(height: 12),
-            _buildOption(
-              index: 2,
-              icon: Icons.block,
-              title: 'Bypass VPN',
-              subtitle: 'Disallows selected applications to use the VPN',
-                showAppsCount: _selectedOption == 2,
-                selectedCount: _selectedAppsForBypassVPN.length,
-                onTapApps: () => _openAppSelection(false),
-            ),
-          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: _options.map((option) {
+              final index = option['index'] ?? 0;
+              final icon = _getIconData(option['icon'] ?? '');
+              final title = option['title'] ?? '';
+              final subtitle = option['subtitle'] ?? '';
+              
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildOption(
+                  index: index,
+                  icon: icon,
+                  title: title,
+                  subtitle: subtitle,
+                  showAppsCount: _selectedOption == index && index != 0,
+                  selectedCount: index == 1 ? _selectedAppsForUsesVPN.length : _selectedAppsForBypassVPN.length,
+                  onTapApps: () => _openAppSelection(index == 1),
+                ),
+              );
+            }).toList(),
           ),
         ),
       ),
@@ -101,18 +155,30 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   }
 
   Future<void> _openAppSelection(bool isUsesVPN) async {
+    if (_installedApps.isEmpty) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+      await _fetchInstalledApps();
+      if (mounted) Navigator.pop(context); // Close loading dialog
+    }
+
+    if (!mounted) return;
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AppSelectionScreen(
+        builder: (context) => my_app.AppSelectionScreen(
           title: isUsesVPN ? 'Uses VPN' : 'Bypass VPN',
-          allApps: _allApps,
+          allApps: _installedApps,
           selectedApps: isUsesVPN ? _selectedAppsForUsesVPN : _selectedAppsForBypassVPN,
         ),
       ),
     );
 
-    if (result != null && result is List<AppInfo>) {
+    if (result != null && result is List<my_app.AppInfo>) {
       setState(() {
         if (isUsesVPN) {
           _selectedAppsForUsesVPN = result;
@@ -136,6 +202,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final cardColor = isDark ? const Color(0xFF352F44) : Colors.white;
+    final labels = _config['labels'] ?? {};
 
     return GestureDetector(
       onTap: () {
@@ -164,46 +231,46 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
               child: Row(
                 children: [
                   Icon(icon, color: isSelected ? Colors.deepPurple : (isDark ? Colors.grey : Colors.black54)),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white : Colors.black,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSelected ? Colors.deepPurple : Colors.transparent,
-                border: Border.all(
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected ? Colors.deepPurple : Colors.transparent,
+                      border: Border.all(
                         color: isSelected ? Colors.deepPurple : Colors.grey.shade400,
-                  width: 2,
-                ),
-              ),
-              child: isSelected
+                        width: 2,
+                      ),
+                    ),
+                    child: isSelected
                         ? const Icon(Icons.check, size: 14, color: Colors.white)
-                  : null,
-            ),
+                        : null,
+                  ),
                 ],
               ),
             ),
@@ -217,7 +284,7 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
                   child: Row(
                     children: [
                       Text(
-                        '$selectedCount Selected Applications',
+                        '$selectedCount ${labels['selected_apps'] ?? 'Selected Applications'}',
                         style: TextStyle(
                           color: Colors.grey.shade500,
                           fontSize: 13,
@@ -237,4 +304,3 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
     );
   }
 }
-

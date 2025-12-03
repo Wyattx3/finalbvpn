@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../user_manager.dart';
 import '../theme_notifier.dart';
+import '../services/mock_sdui_service.dart';
+import '../utils/message_dialog.dart';
 import 'split_tunneling_screen.dart';
 import 'vpn_protocol_screen.dart';
 import 'language_screen.dart';
@@ -20,25 +22,59 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final UserManager _userManager = UserManager();
+  final MockSduiService _sduiService = MockSduiService();
+  
   bool enableDebugLog = false;
   bool pushSetting = true;
   
+  // SDUI Config
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('settings');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+  
   void _showNotImplemented(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature feature is coming soon!'), duration: const Duration(seconds: 1)),
+    showMessageDialog(
+      context,
+      message: '$feature feature is coming soon!',
+      type: MessageType.info,
+      title: 'Coming Soon',
     );
   }
 
   void _showShareDialog() {
-    const String shareText = 'Check out VPN App - Secure, Fast & Private VPN!\n\nDownload now: https://play.google.com/store/apps/details?id=com.vpnapp';
+    final shareText = _config['share_text'] ?? 'Check out VPN App - Secure, Fast & Private VPN!\n\nDownload now: https://play.google.com/store/apps/details?id=com.vpnapp';
     
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         return SafeArea(
           child: Container(
             padding: const EdgeInsets.all(20),
@@ -58,10 +94,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: 'Copy Link',
                       color: Colors.blue,
                       onTap: () {
-                        Clipboard.setData(const ClipboardData(text: shareText));
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Link copied to clipboard!')),
+                        Clipboard.setData(ClipboardData(text: shareText));
+                        Navigator.pop(ctx);
+                        showMessageDialog(
+                          context,
+                          message: 'Link copied to clipboard!',
+                          type: MessageType.success,
+                          title: 'Copied',
                         );
                       },
                     ),
@@ -70,9 +109,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: 'Message',
                       color: Colors.green,
                       onTap: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Opening Messages...')),
+                        Navigator.pop(ctx);
+                        showMessageDialog(
+                          context,
+                          message: 'Opening Messages...',
+                          type: MessageType.info,
+                          title: 'Messages',
                         );
                       },
                     ),
@@ -81,9 +123,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: 'Email',
                       color: Colors.red,
                       onTap: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Opening Email...')),
+                        Navigator.pop(ctx);
+                        showMessageDialog(
+                          context,
+                          message: 'Opening Email...',
+                          type: MessageType.info,
+                          title: 'Email',
                         );
                       },
                     ),
@@ -92,9 +137,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: 'More',
                       color: Colors.orange,
                       onTap: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Opening share options...')),
+                        Navigator.pop(ctx);
+                        showMessageDialog(
+                          context,
+                          message: 'Opening share options...',
+                          type: MessageType.info,
+                          title: 'Share',
                         );
                       },
                     ),
@@ -311,296 +359,322 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: ValueListenableBuilder<ThemeMode>(
-        valueListenable: themeNotifier,
-        builder: (context, currentThemeMode, child) {
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-          final textColor = isDark ? Colors.white : Colors.black;
-          final iconColor = isDark ? Colors.grey : Colors.black54;
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-          return ListView(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: MediaQuery.of(context).padding.bottom + 20, // Add bottom padding for system bar
+    final accountId = _config['account_id'] ?? '19a070***04eef7';
+    final version = _config['version'] ?? 'V1.0.8 (latest)';
+
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (context, currentThemeMode, child) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+        final textColor = isDark ? Colors.white : Colors.black;
+        final iconColor = isDark ? Colors.grey : Colors.black54;
+        final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
+
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            // Status Bar
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+            statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+            
+            // Navigation Bar (Bottom Bar)
+            systemNavigationBarColor: backgroundColor, // Matches theme background
+            systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarDividerColor: Colors.transparent,
+          ),
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(_config['title'] ?? 'Settings'),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
-            children: [
-              _buildSectionHeader('Account'),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.smartphone, color: iconColor),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '19a070***04eef7',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: textColor,
+            body: ListView(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(context).padding.bottom + 20,
+              ),
+              children: [
+                _buildSectionHeader('Account'),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.smartphone, color: iconColor),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          accountId,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: textColor,
+                          ),
                         ),
                       ),
-                    ),
-                    InkWell(
-                      onTap: () {
-                        Clipboard.setData(const ClipboardData(text: '19a070***04eef7'));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('ID copied to clipboard')),
-                        );
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.all(8.0),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('Copy', style: TextStyle(color: Colors.grey)),
-                            SizedBox(width: 4),
-                            Icon(Icons.copy, size: 16, color: Colors.grey),
-                          ],
+                      InkWell(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: accountId));
+                          showMessageDialog(
+                            context,
+                            message: 'ID copied to clipboard',
+                            type: MessageType.success,
+                            title: 'Copied',
+                          );
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('Copy', style: TextStyle(color: Colors.grey)),
+                              SizedBox(width: 4),
+                              Icon(Icons.copy, size: 16, color: Colors.grey),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              
-              const SizedBox(height: 20),
-              _buildSectionHeader('VPN Settings'),
-              _buildSettingItem(
-                icon: Icons.call_split,
-                title: 'Split Tunneling',
-                trailing: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Disable', style: TextStyle(color: Colors.grey)),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                  ],
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const SplitTunnelingScreen()),
-                  );
-                },
-              ),
-              _buildSettingItem(
-                icon: Icons.security,
-                title: 'VPN Protocol',
-                trailing: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Auto', style: TextStyle(color: Colors.grey)),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                  ],
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const VpnProtocolScreen()),
-                  );
-                },
-              ),
-              _buildSettingItem(
-                icon: Icons.speed,
-                title: 'Display Latency',
-                trailing: ValueListenableBuilder<bool>(
-                  valueListenable: _userManager.displayLatency,
-                  builder: (context, value, child) {
-                    return CupertinoSwitch(
-                      value: value,
-                      activeColor: Colors.deepPurple,
-                      trackColor: isDark ? Colors.grey.shade800 : null,
-                      onChanged: (v) => _userManager.displayLatency.value = v,
+                
+                const SizedBox(height: 20),
+                _buildSectionHeader('VPN Settings'),
+                _buildSettingItem(
+                  icon: Icons.call_split,
+                  title: 'Split Tunneling',
+                  trailing: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Disable', style: TextStyle(color: Colors.grey)),
+                      SizedBox(width: 8),
+                      Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                    ],
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SplitTunnelingScreen()),
                     );
                   },
                 ),
-              ),
-              _buildSettingItem(
-                icon: Icons.bug_report_outlined,
-                title: 'Enable Debug Log',
-                trailing: CupertinoSwitch(
-                  value: enableDebugLog,
-                  activeColor: Colors.deepPurple,
-                  trackColor: isDark ? Colors.grey.shade800 : null,
-                  onChanged: (v) => setState(() => enableDebugLog = v),
-                ),
-              ),
-              if (enableDebugLog)
-                 Padding(
-                   padding: const EdgeInsets.only(top: 8.0, left: 16, right: 16),
-                   child: Align(
-                     alignment: Alignment.centerRight,
-                     child: TextButton.icon(
-                       onPressed: () => _showUploadLogDialog(), 
-                       icon: const Icon(Icons.upload_file, size: 16),
-                       label: const Text('Upload Log'),
-                     ),
-                   ),
-                 ),
-
-              const SizedBox(height: 20),
-              _buildSectionHeader('APP Settings'),
-              _buildSettingItem(
-                icon: Icons.language,
-                title: 'Language',
-                trailing: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('English', style: TextStyle(color: Colors.grey)),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                  ],
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const LanguageScreen()),
-                  );
-                },
-              ),
-              _buildSettingItem(
-                icon: Icons.notifications_none,
-                title: 'Push Setting',
-                trailing: CupertinoSwitch(
-                  value: pushSetting,
-                  activeColor: Colors.deepPurple,
-                  trackColor: isDark ? Colors.grey.shade800 : null,
-                  onChanged: (v) => setState(() => pushSetting = v),
-                ),
-              ),
-              _buildSettingItem(
-                icon: currentThemeMode == ThemeMode.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-                title: 'Theme Mode',
-                trailing: Container(
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
+                _buildSettingItem(
+                  icon: Icons.security,
+                  title: 'VPN Protocol',
+                  trailing: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      InkWell(
-                        onTap: () => themeNotifier.value = ThemeMode.light,
-                        child: _buildThemeOption(Icons.light_mode, currentThemeMode == ThemeMode.light),
-                      ),
-                      InkWell(
-                        onTap: () => themeNotifier.value = ThemeMode.dark,
-                        child: _buildThemeOption(Icons.dark_mode, currentThemeMode == ThemeMode.dark),
-                      ),
-                      InkWell(
-                        onTap: () => themeNotifier.value = ThemeMode.system,
-                        child: _buildThemeOption(Icons.settings_brightness, currentThemeMode == ThemeMode.system),
-                      ),
+                      Text('Auto', style: TextStyle(color: Colors.grey)),
+                      SizedBox(width: 8),
+                      Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                     ],
                   ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const VpnProtocolScreen()),
+                    );
+                  },
                 ),
-              ),
+                _buildSettingItem(
+                  icon: Icons.speed,
+                  title: 'Display Latency',
+                  trailing: ValueListenableBuilder<bool>(
+                    valueListenable: _userManager.displayLatency,
+                    builder: (context, value, child) {
+                      return CupertinoSwitch(
+                        value: value,
+                        activeColor: Colors.deepPurple,
+                        trackColor: isDark ? Colors.grey.shade800 : null,
+                        onChanged: (v) => _userManager.displayLatency.value = v,
+                      );
+                    },
+                  ),
+                ),
+                _buildSettingItem(
+                  icon: Icons.bug_report_outlined,
+                  title: 'Enable Debug Log',
+                  trailing: CupertinoSwitch(
+                    value: enableDebugLog,
+                    activeColor: Colors.deepPurple,
+                    trackColor: isDark ? Colors.grey.shade800 : null,
+                    onChanged: (v) => setState(() => enableDebugLog = v),
+                  ),
+                ),
+                if (enableDebugLog)
+                   Padding(
+                     padding: const EdgeInsets.only(top: 8.0, left: 16, right: 16),
+                     child: Align(
+                       alignment: Alignment.centerRight,
+                       child: TextButton.icon(
+                         onPressed: () => _showUploadLogDialog(), 
+                         icon: const Icon(Icons.upload_file, size: 16),
+                         label: const Text('Upload Log'),
+                       ),
+                     ),
+                   ),
 
-              const SizedBox(height: 20),
-              _buildSectionHeader('Support'),
-              _buildSettingItem(
-                icon: Icons.privacy_tip_outlined,
-                title: 'Privacy Policy',
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
-                  );
-                },
-              ),
-              _buildSettingItem(
-                icon: Icons.description_outlined,
-                title: 'Terms of Service',
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const TermsOfServiceScreen()),
-                  );
-                },
-              ),
-              _buildSettingItem(
-                icon: Icons.mail_outline,
-                title: 'Contact Us',
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const ContactUsScreen()),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 20),
-              _buildSectionHeader('Other'),
-              _buildSettingItem(
-                icon: Icons.share_outlined,
-                title: 'Share',
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                onTap: () {
-                  _showShareDialog();
-                },
-              ),
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const AboutScreen()),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Row(
+                const SizedBox(height: 20),
+                _buildSectionHeader('APP Settings'),
+                _buildSettingItem(
+                  icon: Icons.language,
+                  title: 'Language',
+                  trailing: const Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.info_outline, color: Colors.grey),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Version',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        'V1.0.8 (latest)',
-                        style: TextStyle(color: Colors.grey.shade500),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                      Text('English', style: TextStyle(color: Colors.grey)),
+                      SizedBox(width: 8),
+                      Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                     ],
                   ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const LanguageScreen()),
+                    );
+                  },
                 ),
-              ),
-            ],
-          );
-        }
-      ),
+                _buildSettingItem(
+                  icon: Icons.notifications_none,
+                  title: 'Push Setting',
+                  trailing: CupertinoSwitch(
+                    value: pushSetting,
+                    activeColor: Colors.deepPurple,
+                    trackColor: isDark ? Colors.grey.shade800 : null,
+                    onChanged: (v) => setState(() => pushSetting = v),
+                  ),
+                ),
+                _buildSettingItem(
+                  icon: currentThemeMode == ThemeMode.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+                  title: 'Theme Mode',
+                  trailing: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: () => themeNotifier.value = ThemeMode.light,
+                          child: _buildThemeOption(Icons.light_mode, currentThemeMode == ThemeMode.light),
+                        ),
+                        InkWell(
+                          onTap: () => themeNotifier.value = ThemeMode.dark,
+                          child: _buildThemeOption(Icons.dark_mode, currentThemeMode == ThemeMode.dark),
+                        ),
+                        InkWell(
+                          onTap: () => themeNotifier.value = ThemeMode.system,
+                          child: _buildThemeOption(Icons.settings_brightness, currentThemeMode == ThemeMode.system),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+                _buildSectionHeader('Support'),
+                _buildSettingItem(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Privacy Policy',
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
+                    );
+                  },
+                ),
+                _buildSettingItem(
+                  icon: Icons.description_outlined,
+                  title: 'Terms of Service',
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const TermsOfServiceScreen()),
+                    );
+                  },
+                ),
+                _buildSettingItem(
+                  icon: Icons.mail_outline,
+                  title: 'Contact Us',
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ContactUsScreen()),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 20),
+                _buildSectionHeader('Other'),
+                _buildSettingItem(
+                  icon: Icons.share_outlined,
+                  title: 'Share',
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                  onTap: () {
+                    _showShareDialog();
+                  },
+                ),
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const AboutScreen()),
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: Colors.grey),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Version',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          version,
+                          style: TextStyle(color: Colors.grey.shade500),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
     );
   }
 

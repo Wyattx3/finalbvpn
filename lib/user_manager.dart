@@ -6,9 +6,13 @@ class UserManager {
   factory UserManager() => _instance;
   UserManager._internal();
 
-  // Balance (MMK) - 1 Ad = 30 MMK
-  // Test Balance: 100,000 MMK
-  final ValueNotifier<int> balanceMMK = ValueNotifier(100000);
+  // Balance (Points) - 1 Ad = 30 Points (30 Points = 30 MMK)
+  // Test Balance: 100,000 Points
+  final ValueNotifier<int> balancePoints = ValueNotifier(100000);
+  
+  // Ad Limits
+  int _adWatchCount = 0;
+  DateTime? _nextAdAvailableTime;
   
   // VPN Remaining Time (Seconds)
   final ValueNotifier<int> remainingSeconds = ValueNotifier(0);
@@ -23,14 +27,53 @@ class UserManager {
   VoidCallback? onTimeExpired; // Callback to disconnect VPN
 
   // Add Reward & Time
-  void watchAdReward() {
-    balanceMMK.value += 30; // Earn 30 MMK
+  // Returns true if successful, false if limit reached
+  bool watchAdReward() {
+    if (!canWatchAd()) return false;
+
+    balancePoints.value += 30; // Earn 30 Points
     remainingSeconds.value += 7200; // Add 2 Hours (7200 seconds)
+    
+    _adWatchCount++;
+    if (_adWatchCount >= 10) {
+      // 10 minutes cooldown after 10 ads
+      _nextAdAvailableTime = DateTime.now().add(const Duration(minutes: 10));
+      _adWatchCount = 0; // Reset count for next cycle
+    }
+    return true;
   }
 
   // Add balance only (for earn money screen)
-  void addBalance(int amount) {
-    balanceMMK.value += amount;
+  bool addBalance(int amount) {
+    if (!canWatchAd()) return false;
+    
+    balancePoints.value += amount;
+    
+    _adWatchCount++;
+    if (_adWatchCount >= 10) {
+      _nextAdAvailableTime = DateTime.now().add(const Duration(minutes: 10));
+      _adWatchCount = 0;
+    }
+    return true;
+  }
+
+  // Check if user can watch ad
+  bool canWatchAd() {
+    if (_nextAdAvailableTime != null) {
+      if (DateTime.now().isBefore(_nextAdAvailableTime!)) {
+        return false; // Still in cooldown
+      } else {
+        _nextAdAvailableTime = null; // Cooldown over
+      }
+    }
+    return true;
+  }
+
+  // Get remaining cooldown time
+  Duration get cooldownTime {
+    if (_nextAdAvailableTime == null) return Duration.zero;
+    final diff = _nextAdAvailableTime!.difference(DateTime.now());
+    return diff.isNegative ? Duration.zero : diff;
   }
 
   // Start Countdown
@@ -61,7 +104,7 @@ class UserManager {
     return "${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
   }
 
-  // Helper to convert to USD (1 USD = 4500 MMK)
-  double get balanceUSD => balanceMMK.value / 4500; 
+  // Helper to convert to USD (1 Point = 1 MMK, 1 USD = 4500 MMK)
+  double get balanceUSD => balancePoints.value / 4500; 
 }
 

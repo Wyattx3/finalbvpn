@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/mock_sdui_service.dart';
+import '../utils/message_dialog.dart';
 
 class LanguageScreen extends StatefulWidget {
   const LanguageScreen({super.key});
@@ -8,28 +10,55 @@ class LanguageScreen extends StatefulWidget {
 }
 
 class _LanguageScreenState extends State<LanguageScreen> {
+  final MockSduiService _sduiService = MockSduiService();
   String selectedLanguage = 'English';
+  
+  // SDUI Data
+  List<Map<String, dynamic>> languages = [];
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
 
-  final List<Map<String, String>> languages = [
-    {'name': 'English', 'native': 'English', 'code': 'en'},
-    {'name': 'Myanmar', 'native': 'မြန်မာ', 'code': 'my'},
-    {'name': 'Chinese', 'native': '中文', 'code': 'zh'},
-    {'name': 'Thai', 'native': 'ไทย', 'code': 'th'},
-    {'name': 'Japanese', 'native': '日本語', 'code': 'ja'},
-    {'name': 'Korean', 'native': '한국어', 'code': 'ko'},
-    {'name': 'Vietnamese', 'native': 'Tiếng Việt', 'code': 'vi'},
-    {'name': 'Hindi', 'native': 'हिन्दी', 'code': 'hi'},
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('language');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            languages = List<Map<String, dynamic>>.from(_config['languages'] ?? []);
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Language'),
+        title: Text(_config['title'] ?? 'Language'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
@@ -40,18 +69,20 @@ class _LanguageScreenState extends State<LanguageScreen> {
         itemCount: languages.length,
         itemBuilder: (context, index) {
           final language = languages[index];
-          final isSelected = selectedLanguage == language['name'];
+          final name = language['name'] ?? '';
+          final native = language['native'] ?? '';
+          final isSelected = selectedLanguage == name;
 
           return InkWell(
             onTap: () {
               setState(() {
-                selectedLanguage = language['name']!;
+                selectedLanguage = name;
               });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Language changed to ${language['name']}'),
-                  duration: const Duration(seconds: 1),
-                ),
+              showMessageDialog(
+                context,
+                message: 'Language changed to $name',
+                type: MessageType.success,
+                title: 'Language Updated',
               );
             },
             borderRadius: BorderRadius.circular(12),
@@ -74,7 +105,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          language['name']!,
+                          name,
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -83,7 +114,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          language['native']!,
+                          native,
                           style: TextStyle(
                             fontSize: 14,
                             color: subtitleColor,
@@ -103,4 +134,3 @@ class _LanguageScreenState extends State<LanguageScreen> {
     );
   }
 }
-

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../services/mock_sdui_service.dart';
 
-class WithdrawHistoryDetailsScreen extends StatelessWidget {
+class WithdrawHistoryDetailsScreen extends StatefulWidget {
   final String amount;
   final String date;
   final String status;
@@ -23,7 +24,49 @@ class WithdrawHistoryDetailsScreen extends StatelessWidget {
   });
 
   @override
+  State<WithdrawHistoryDetailsScreen> createState() => _WithdrawHistoryDetailsScreenState();
+}
+
+class _WithdrawHistoryDetailsScreenState extends State<WithdrawHistoryDetailsScreen> {
+  final MockSduiService _sduiService = MockSduiService();
+  Map<String, dynamic> _config = {};
+  Map<String, dynamic> _labels = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('withdraw_details');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            _labels = Map<String, dynamic>.from(_config['labels'] ?? {});
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F5FA);
     final textColor = isDark ? Colors.white : Colors.black;
@@ -32,7 +75,7 @@ class WithdrawHistoryDetailsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        title: const Text('Transaction Details'),
+        title: Text(_config['title'] ?? 'Transaction Details'),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -54,35 +97,35 @@ class WithdrawHistoryDetailsScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: widget.statusColor.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      status == 'Completed' ? Icons.check_circle : Icons.access_time_filled,
+                      widget.status == 'Completed' ? Icons.check_circle : Icons.access_time_filled,
                       size: 60,
-                      color: statusColor,
+                      color: widget.statusColor,
                     ),
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    amount,
+                    widget.amount,
                     style: TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.bold,
-                      color: statusColor,
+                      color: widget.statusColor,
                     ),
                   ),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: widget.statusColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      status,
+                      widget.status,
                       style: TextStyle(
-                        color: statusColor,
+                        color: widget.statusColor,
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                       ),
@@ -107,7 +150,7 @@ class WithdrawHistoryDetailsScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Transaction Information',
+                    _labels['transaction_info'] ?? 'Transaction Information',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -118,15 +161,15 @@ class WithdrawHistoryDetailsScreen extends StatelessWidget {
                   Expanded(
                     child: ListView(
                       children: [
-                        _buildDetailRow('Date', date, textColor),
+                        _buildDetailRow(_labels['date'] ?? 'Date', widget.date, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow('Payment Method', method, textColor),
+                        _buildDetailRow(_labels['payment_method'] ?? 'Payment Method', widget.method, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow('Account Name', accountName, textColor),
+                        _buildDetailRow(_labels['account_name'] ?? 'Account Name', widget.accountName, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow('Account Number', accountNumber, textColor),
+                        _buildDetailRow(_labels['account_number'] ?? 'Account Number', widget.accountNumber, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow('Transaction ID', transactionId, textColor),
+                        _buildDetailRow(_labels['transaction_id'] ?? 'Transaction ID', widget.transactionId, textColor),
                       ],
                     ),
                   ),

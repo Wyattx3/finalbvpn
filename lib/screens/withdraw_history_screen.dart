@@ -1,19 +1,61 @@
 import 'package:flutter/material.dart';
 import 'withdraw_history_details_screen.dart';
+import '../services/mock_sdui_service.dart';
 
-class WithdrawHistoryScreen extends StatelessWidget {
+class WithdrawHistoryScreen extends StatefulWidget {
   const WithdrawHistoryScreen({super.key});
 
   @override
+  State<WithdrawHistoryScreen> createState() => _WithdrawHistoryScreenState();
+}
+
+class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
+  final MockSduiService _sduiService = MockSduiService();
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('withdraw_history');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F5FA);
     final textColor = isDark ? Colors.white : Colors.black;
+    final labels = _config['labels'] ?? {};
 
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        title: Text('Withdraw History', style: TextStyle(color: textColor)),
+        title: Text(_config['title'] ?? 'Withdraw History', style: TextStyle(color: textColor)),
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
@@ -28,7 +70,7 @@ class WithdrawHistoryScreen extends StatelessWidget {
             context,
             amount: '25,000 MMK',
             date: 'Today, 2:30 PM',
-            status: 'Pending',
+            status: labels['pending'] ?? 'Pending',
             statusColor: Colors.orange,
             method: 'KBZ Pay',
             accountName: 'Mg Mg',
@@ -39,7 +81,7 @@ class WithdrawHistoryScreen extends StatelessWidget {
             context,
             amount: '\$20.00 USD',
             date: 'Nov 20, 2025',
-            status: 'Completed',
+            status: labels['completed'] ?? 'Completed',
             statusColor: Colors.green,
             method: 'PayPal',
             accountName: 'Kyaw Kyaw',

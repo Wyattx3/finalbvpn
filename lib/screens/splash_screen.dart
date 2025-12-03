@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'home_screen.dart';
 import 'onboarding_screen.dart';
+import '../services/mock_sdui_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,6 +15,12 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+  final MockSduiService _sduiService = MockSduiService();
+  
+  // SDUI Config
+  String _appName = 'SafeVPN';
+  String _tagline = 'Secure & Fast';
+  int _splashDuration = 3;
 
   @override
   void initState() {
@@ -29,12 +36,31 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     );
 
     _controller.forward();
+    _loadConfigAndNavigate();
+  }
 
-    Timer(const Duration(seconds: 3), () {
+  Future<void> _loadConfigAndNavigate() async {
+    try {
+      final response = await _sduiService.getScreenConfig('splash');
+      if (response.containsKey('config')) {
+        final config = response['config'];
+        setState(() {
+          _appName = config['app_name'] ?? 'SafeVPN';
+          _tagline = config['tagline'] ?? 'Secure & Fast';
+          _splashDuration = config['splash_duration_seconds'] ?? 3;
+        });
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+    }
+
+    // Wait for splash duration then navigate
+    await Future.delayed(Duration(seconds: _splashDuration));
+    if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const OnboardingScreen()),
       );
-    });
+    }
   }
 
   @override
@@ -88,9 +114,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(height: 24),
-                  const Text(
-                    'SafeVPN',
-                    style: TextStyle(
+                  Text(
+                    _appName,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -98,9 +124,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'Secure & Fast',
-                    style: TextStyle(
+                  Text(
+                    _tagline,
+                    style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 16,
                       letterSpacing: 0.5,
@@ -119,4 +145,3 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     );
   }
 }
-

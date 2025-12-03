@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/mock_sdui_service.dart';
 
 class LocationSelectionScreen extends StatefulWidget {
   const LocationSelectionScreen({super.key});
@@ -8,170 +9,72 @@ class LocationSelectionScreen extends StatefulWidget {
 }
 
 class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
+  final MockSduiService _sduiService = MockSduiService();
+  
   int selectedTabIndex = 0; // 0 for Universal, 1 for Streaming
   String selectedLocation = 'US - San Jose'; // Default selection
+  
+  // Data from SDUI
+  List<Map<String, dynamic>> universalLocations = [];
+  List<Map<String, dynamic>> streamingLocations = [];
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
 
-  final List<Map<String, dynamic>> universalLocations = [
-    {
-      'country': 'United States',
-      'flag': '🇺🇸',
-      'cities': [
-        'US - San Jose',
-        'US - Los Angeles',
-        'US - New York',
-        'US - Ashburn',
-        'US - Virginia',
-        'US - Miami',
-        'US - Oregon',
-        'US - Dallas',
-      ]
-    },
-    {
-      'country': 'Canada',
-      'flag': '🇨🇦',
-      'cities': [
-        'CA - Vancouver',
-        'CA - Toronto',
-        'CA - Montreal',
-      ]
-    },
-    {
-      'country': 'United Kingdom',
-      'flag': '🇬🇧',
-      'cities': [
-        'UK - London',
-        'UK - Manchester',
-      ]
-    },
-    {
-      'country': 'Singapore',
-      'flag': '🇸🇬',
-      'cities': [
-        'SG - Singapore',
-      ]
-    },
-    {
-      'country': 'Japan',
-      'flag': '🇯🇵',
-      'cities': [
-        'JP - Tokyo',
-        'JP - Osaka',
-      ]
-    },
-    {
-      'country': 'Germany',
-      'flag': '🇩🇪',
-      'cities': [
-        'DE - Frankfurt',
-        'DE - Berlin',
-        'DE - Munich',
-      ]
-    },
-    {
-      'country': 'France',
-      'flag': '🇫🇷',
-      'cities': [
-        'FR - Paris',
-        'FR - Marseille',
-      ]
-    },
-    {
-      'country': 'Netherlands',
-      'flag': '🇳🇱',
-      'cities': [
-        'NL - Amsterdam',
-        'NL - Rotterdam',
-      ]
-    },
-    {
-      'country': 'Australia',
-      'flag': '🇦🇺',
-      'cities': [
-        'AU - Sydney',
-        'AU - Melbourne',
-        'AU - Perth',
-      ]
-    },
-    {
-      'country': 'South Korea',
-      'flag': '🇰🇷',
-      'cities': [
-        'KR - Seoul',
-        'KR - Busan',
-      ]
-    },
-    {
-      'country': 'Hong Kong',
-      'flag': '🇭🇰',
-      'cities': [
-        'HK - Hong Kong',
-      ]
-    },
-    {
-      'country': 'Taiwan',
-      'flag': '🇹🇼',
-      'cities': [
-        'TW - Taipei',
-        'TW - Kaohsiung',
-      ]
-    },
-    {
-      'country': 'India',
-      'flag': '🇮🇳',
-      'cities': [
-        'IN - Mumbai',
-        'IN - Delhi',
-        'IN - Bangalore',
-      ]
-    },
-    {
-      'country': 'Brazil',
-      'flag': '🇧🇷',
-      'cities': [
-        'BR - Sao Paulo',
-        'BR - Rio de Janeiro',
-      ]
-    },
-    {
-      'country': 'Sweden',
-      'flag': '🇸🇪',
-      'cities': [
-        'SE - Stockholm',
-      ]
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
 
-  final List<Map<String, dynamic>> streamingLocations = [
-    {
-      'country': 'Netflix',
-      'flag': '🎬',
-      'cities': [
-        'US - Netflix',
-        'UK - Netflix',
-        'JP - Netflix',
-      ]
-    },
-     {
-      'country': 'Disney+',
-      'flag': '📺',
-      'cities': [
-        'US - Disney+',
-      ]
-    },
-  ];
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('location_selection');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          final config = response['config'];
+          setState(() {
+            _config = config;
+            universalLocations = List<Map<String, dynamic>>.from(config['universal_locations'] ?? []);
+            streamingLocations = List<Map<String, dynamic>>.from(config['streaming_locations'] ?? []);
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final dataList = selectedTabIndex == 0 ? universalLocations : streamingLocations;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
     final textColor = isDark ? Colors.white : Colors.black;
+    
+    // Tabs config
+    final tabs = _config['tabs'] as List<dynamic>? ?? [];
+    String tab1Label = "Universal";
+    String tab2Label = "Streaming";
+    if (tabs.isNotEmpty) {
+      tab1Label = tabs[0]['label'] ?? "Universal";
+      if (tabs.length > 1) tab2Label = tabs[1]['label'] ?? "Streaming";
+    }
 
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: backgroundColor,
-        title: Text('Select Location', style: TextStyle(color: textColor)),
+        title: Text(_config['title'] ?? 'Select Location', style: TextStyle(color: textColor)),
         centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
@@ -194,7 +97,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                         });
                       },
                       icon: const Icon(Icons.grid_view),
-                      label: const Text('Universal'),
+                      label: Text(tab1Label),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: selectedTabIndex == 0 ? Colors.deepPurple : (isDark ? const Color(0xFF352F44) : Colors.white),
                         foregroundColor: selectedTabIndex == 0 ? Colors.white : textColor,
@@ -215,7 +118,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                         });
                       },
                       icon: const Icon(Icons.play_circle_outline),
-                      label: const Text('Streaming'),
+                      label: Text(tab2Label),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: selectedTabIndex == 1 ? Colors.deepPurple : (isDark ? const Color(0xFF352F44) : Colors.white),
                         foregroundColor: selectedTabIndex == 1 ? Colors.white : textColor,
@@ -367,4 +270,3 @@ class CountryTile extends StatelessWidget {
     );
   }
 }
-

@@ -6,7 +6,12 @@ import 'location_selection_screen.dart';
 import 'rewards_screen.dart';
 import 'earn_money_screen.dart';
 import '../user_manager.dart';
+import '../services/mock_sdui_service.dart';
+import '../utils/message_dialog.dart';
+import '../utils/review_utils.dart'; // Import ReviewUtils
+import 'dynamic_popup_screen.dart';
 import 'dart:async';
+import 'dart:ui';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,14 +27,26 @@ class _HomeScreenState extends State<HomeScreen> {
   String currentFlag = '🇺🇸';
   
   final UserManager _userManager = UserManager();
+  final MockSduiService _sduiService = MockSduiService();
   static const platform = MethodChannel('com.example.vpn_app/notification');
+
+  // SDUI Config
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     
-    // Request permission immediately
+    // Load SDUI Config
+    _loadServerConfig();
+    
+    // Check for Dynamic Popup (Update/Ban/Promo)
+    _checkStartupPopup();
+
+    // Check for Review Request (after 48h)
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkReviewRequest();
       _requestPermission();
     });
 
@@ -38,12 +55,57 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           isConnected = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Time expired! Watch ads to reconnect.')),
+        showMessageDialog(
+          context,
+          message: 'Time expired! Watch ads to reconnect.',
+          type: MessageType.warning,
+          title: 'Time Expired',
         );
         _stopNotification();
       }
     };
+  }
+
+  Future<void> _checkReviewRequest() async {
+    // Uncomment the line below to RESET for testing purposes (will set install time to 49h ago)
+    await ReviewUtils.debugResetForTesting(); 
+    
+    if (mounted) {
+      await ReviewUtils.checkAndRequestReview(context);
+    }
+  }
+
+  Future<void> _checkStartupPopup() async {
+    try {
+      final response = await _sduiService.getScreenConfig('popup_startup');
+      if (mounted && response.containsKey('config')) {
+        final config = response['config'];
+        
+        // Check if popup is enabled from server
+        final bool isEnabled = config['enabled'] ?? false;
+        
+        if (isEnabled) {
+          showDynamicPopup(context, config);
+        }
+      }
+    } catch (e) {
+      debugPrint("Popup Error: $e");
+    }
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('home');
+      if (mounted) {
+        setState(() {
+          _config = response['config'] ?? {};
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -190,8 +252,11 @@ class _HomeScreenState extends State<HomeScreen> {
         Navigator.pop(context);
         _userManager.watchAdReward();
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Success! +2 Hours Added, +30 MMK Earned')),
+        showMessageDialog(
+          context,
+          message: '+2 Hours Added, +30 MMK Earned',
+          type: MessageType.success,
+          title: 'Reward Earned!',
         );
 
         _simulateConnection();
@@ -201,8 +266,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openLocationSelection() async {
     if (isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please disconnect to change location')),
+      showMessageDialog(
+        context,
+        message: 'Please disconnect to change location',
+        type: MessageType.info,
+        title: 'Disconnect First',
       );
       return;
     }
@@ -220,56 +288,24 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildRecentLocationItem(String location, String flag, bool isDark, {bool isDefault = false}) {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          currentLocation = location;
-          currentFlag = flag;
-        });
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isDefault ? Colors.deepPurple : (isDark ? Colors.grey.shade800 : Colors.white),
-                border: isDefault ? null : Border.all(color: Colors.grey.shade300),
-              ),
-              child: isDefault 
-                  ? const Icon(Icons.location_on, size: 16, color: Colors.white)
-                  : Text(flag, style: const TextStyle(fontSize: 16)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                location,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-            ),
-            Icon(Icons.signal_cellular_alt, size: 16, color: Colors.green.shade400),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black;
     final cardColor = isDark ? const Color(0xFF352F44) : Colors.white;
     final subTextColor = isDark ? Colors.grey.shade400 : Colors.grey;
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
+
+    // SDUI Strings with fallbacks
+    final appBarConfig = _config['app_bar'] ?? {};
+    final buttonConfig = _config['main_button'] ?? {};
+    final cardConfig = _config['location_card'] ?? {};
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -290,11 +326,16 @@ class _HomeScreenState extends State<HomeScreen> {
           valueListenable: _userManager.splitTunnelingMode,
           builder: (context, splitMode, child) {
             final titleColor = isConnecting ? Colors.orange : (isConnected ? Colors.green : (isDark ? Colors.white : Colors.black));
+            
+            String titleText = appBarConfig['title_disconnected'] ?? 'Not Connected';
+            if (isConnecting) titleText = appBarConfig['title_connecting'] ?? 'Connecting...';
+            if (isConnected) titleText = appBarConfig['title_connected'] ?? 'Connected';
+
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  isConnecting ? 'Connecting...' : (isConnected ? 'Connected' : 'Not Connected'),
+                  titleText,
                   style: TextStyle(
                     color: titleColor,
                     fontSize: 18,
@@ -342,8 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final double screenHeight = constraints.maxHeight;
           final double buttonSize = screenHeight * 0.25; // Button is 25% of screen height
           final double innerButtonSize = buttonSize * 0.75; 
-          final double bottomPadding = screenHeight * 0.05; // 5% padding at bottom
-
+          
           return ValueListenableBuilder<int>(
             valueListenable: _userManager.remainingSeconds,
             builder: (context, remainingSeconds, child) {
@@ -444,8 +484,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         // Status Text
                         Text(
                           isConnecting 
-                              ? 'Establishing Connection...' 
-                              : (isConnected ? 'VPN is On' : 'Tap to Connect'),
+                              ? (buttonConfig['status_text_connecting'] ?? 'Establishing Connection...') 
+                              : (isConnected ? (buttonConfig['status_text_connected'] ?? 'VPN is On') : (buttonConfig['status_text_disconnected'] ?? 'Tap to Connect')),
                           style: TextStyle(
                             color: isConnecting ? Colors.orange : (isConnected ? Colors.green : subTextColor),
                             fontWeight: FontWeight.w600,
@@ -509,7 +549,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Selected Location',
+                                          cardConfig['label'] ?? 'Selected Location',
                                           style: TextStyle(
                                             fontSize: 11,
                                             color: subTextColor,
@@ -595,7 +635,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     const Icon(Icons.history, size: 14, color: Colors.grey),
                                     const SizedBox(width: 8),
                                     Text(
-                                      'Recent Location',
+                                      cardConfig['recent_label'] ?? 'Recent Location',
                                       style: TextStyle(
                                         color: subTextColor,
                                         fontSize: 12,

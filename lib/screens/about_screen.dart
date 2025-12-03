@@ -1,21 +1,67 @@
 import 'package:flutter/material.dart';
+import '../services/mock_sdui_service.dart';
+import '../utils/message_dialog.dart';
 
-class AboutScreen extends StatelessWidget {
+class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
 
   @override
+  State<AboutScreen> createState() => _AboutScreenState();
+}
+
+class _AboutScreenState extends State<AboutScreen> {
+  final MockSduiService _sduiService = MockSduiService();
+  Map<String, dynamic> _config = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServerConfig();
+  }
+
+  Future<void> _loadServerConfig() async {
+    try {
+      final response = await _sduiService.getScreenConfig('about');
+      if (mounted) {
+        if (response.containsKey('config')) {
+          setState(() {
+            _config = response['config'];
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("SDUI Error: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
     final primaryPurple = isDark ? const Color(0xFFB388FF) : const Color(0xFF7E57C2);
 
+    final appName = _config['app_name'] ?? 'VPN App';
+    final version = _config['version'] ?? '1.0.0';
+    final description = _config['description'] ?? 'Secure & Private VPN';
+
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: backgroundColor,
-        title: Text('About', style: TextStyle(color: textColor)),
+        title: Text(_config['title'] ?? 'About', style: TextStyle(color: textColor)),
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
@@ -59,7 +105,7 @@ class AboutScreen extends StatelessWidget {
               const SizedBox(height: 24),
               
               Text(
-                'VPN App',
+                appName,
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
@@ -76,7 +122,7 @@ class AboutScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  'Version 1.0.8',
+                  'Version $version',
                   style: TextStyle(
                     color: primaryPurple,
                     fontWeight: FontWeight.w600,
@@ -86,16 +132,13 @@ class AboutScreen extends StatelessWidget {
               
               const SizedBox(height: 12),
               
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                  const SizedBox(width: 6),
-                  Text(
-                    'You have the latest version',
-                    style: TextStyle(color: subtitleColor),
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  description,
+                  style: TextStyle(color: subtitleColor),
+                  textAlign: TextAlign.center,
+                ),
               ),
               
               const Spacer(flex: 2),
@@ -106,8 +149,11 @@ class AboutScreen extends StatelessWidget {
                 height: 55,
                 child: OutlinedButton.icon(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('You already have the latest version!')),
+                    showMessageDialog(
+                      context,
+                      message: 'You already have the latest version!',
+                      type: MessageType.success,
+                      title: 'Up to Date',
                     );
                   },
                   icon: const Icon(Icons.refresh),
@@ -126,12 +172,12 @@ class AboutScreen extends StatelessWidget {
               
               // Credits
               Text(
-                'Made with ❤️ by VPN App Team',
+                'Made with ❤️ by $appName Team',
                 style: TextStyle(color: subtitleColor),
               ),
               const SizedBox(height: 8),
               Text(
-                '© 2025 VPN App. All rights reserved.',
+                '© 2025 $appName. All rights reserved.',
                 style: TextStyle(color: subtitleColor, fontSize: 12),
               ),
               
@@ -143,4 +189,3 @@ class AboutScreen extends StatelessWidget {
     );
   }
 }
-
