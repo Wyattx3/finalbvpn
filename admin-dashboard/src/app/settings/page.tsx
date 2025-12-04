@@ -1,13 +1,60 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Save, Lock, User, Bell, Shield, Moon, Sun, Laptop } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
+
+interface LoginHistoryEntry {
+  id: number;
+  timestamp: string;
+  device: string;
+  ip: string;
+  location: string;
+  isActive?: boolean; // Added isActive flag
+}
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
   const { theme, setTheme } = useTheme();
-  
+  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[]>([]);
+
+  // Load settings from localStorage or default
+  const [preferences, setPreferences] = useState({
+    emailNotifications: true,
+    securityAlerts: true,
+    autoLogout: 30, // minutes
+  });
+
+  useEffect(() => {
+    // Load History
+    const storedHistory = localStorage.getItem('login_history');
+    if (storedHistory) {
+      try {
+        let history = JSON.parse(storedHistory);
+        // Mark the most recent entry as active for simulation
+        if (history.length > 0) {
+          history[0].isActive = true;
+        }
+        setLoginHistory(history);
+      } catch (e) {
+        console.error("Failed to parse login history", e);
+      }
+    }
+
+    // Load Preferences
+    const storedPrefs = localStorage.getItem('admin_preferences');
+    if (storedPrefs) {
+      try {
+        setPreferences(JSON.parse(storedPrefs));
+      } catch (e) {}
+    }
+  }, []);
+
+  // Save preferences when changed
+  useEffect(() => {
+    localStorage.setItem('admin_preferences', JSON.stringify(preferences));
+  }, [preferences]);
+
   // Mock Settings State
   const [adminProfile, setAdminProfile] = useState({
     name: "Super Admin",
@@ -17,11 +64,9 @@ export default function SettingsPage() {
     confirmPassword: "",
   });
 
-  const [preferences, setPreferences] = useState({
-    emailNotifications: true,
-    securityAlerts: true,
-    autoLogout: 30, // minutes
-  });
+  // Remove duplicate handleSave here
+
+  // Remove duplicate preferences state here
 
   const handleSave = () => {
     alert("Settings saved successfully!");
@@ -95,21 +140,6 @@ export default function SettingsPage() {
             <h2 className="text-lg font-semibold dark:text-white">Security & Access</h2>
             
             <div className="space-y-4">
-               <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4 dark:border-gray-700">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-full bg-blue-100 p-2 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                    <Shield className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">Two-Factor Authentication (2FA)</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Add an extra layer of security to your admin account.</p>
-                  </div>
-                </div>
-                <button className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800">
-                  Enable
-                </button>
-              </div>
-
               <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4 dark:border-gray-700">
                 <div className="flex items-center gap-3">
                   <div className="rounded-full bg-yellow-100 p-2 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400">
@@ -133,17 +163,35 @@ export default function SettingsPage() {
             </div>
 
             <div className="mt-8">
-              <h3 className="mb-4 text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">Recent Login Activity</h3>
-              <div className="rounded-lg border border-gray-100 dark:border-gray-700">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex items-center justify-between border-b border-gray-100 p-3 last:border-0 dark:border-gray-700">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">Windows 10 • Chrome</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Yangon, Myanmar • 192.168.1.1</p>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">Recent Login Activity</h3>
+                <span className="text-xs text-gray-400">Last 1000 records</span>
+              </div>
+              <div className="rounded-lg border border-gray-100 dark:border-gray-700 max-h-[400px] overflow-y-auto">
+                {loginHistory.length > 0 ? (
+                  loginHistory.map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between border-b border-gray-100 p-3 last:border-0 dark:border-gray-700">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={entry.device}>
+                            {entry.device}
+                          </p>
+                          {entry.isActive && (
+                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                              Active Now
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{entry.location} • {entry.ip}</p>
+                      </div>
+                      <span className="ml-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{entry.timestamp}</span>
                     </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{i * 2} hours ago</span>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                   <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                     No login history recorded yet.
+                   </div>
+                )}
               </div>
             </div>
           </div>

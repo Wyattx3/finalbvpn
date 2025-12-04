@@ -1,7 +1,10 @@
-import type { Metadata } from "next";
+"use client";
+
 import { Geist, Geist_Mono } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
+import SessionTimeoutHandler from "@/components/SessionTimeoutHandler";
+import { usePathname } from "next/navigation";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,28 +17,57 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "BVPN Admin Dashboard",
-  description: "Admin dashboard for BVPN application",
-};
+// Routes that should show the sidebar (authenticated dashboard routes)
+const dashboardRoutes = ['/dashboard', '/users', '/servers', '/withdrawals', '/sdui', '/settings'];
+
+function isDashboardRoute(pathname: string): boolean {
+  return dashboardRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`));
+}
+
+// Inline script to prevent flash of wrong theme
+const themeScript = `
+  (function() {
+    const storageKey = 'bvpn-admin-theme';
+    let theme;
+    try {
+      theme = localStorage.getItem(storageKey);
+    } catch {}
+    
+    if (!theme || !['dark', 'light', 'system'].includes(theme)) {
+      theme = 'system';
+    }
+    
+    let resolvedTheme = theme;
+    if (theme === 'system') {
+      resolvedTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    
+    document.documentElement.classList.add(resolvedTheme);
+  })();
+`;
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const pathname = usePathname();
+  // Only show sidebar on known dashboard routes
+  const showSidebar = isDashboardRoute(pathname);
+
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-300`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100`}
       >
-        <ThemeProvider
-            defaultTheme="system"
-            storageKey="bvpn-admin-theme"
-          >
+        <ThemeProvider defaultTheme="system" storageKey="bvpn-admin-theme">
           <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 overflow-auto p-8">
+            <SessionTimeoutHandler />
+            {showSidebar && <Sidebar />}
+            <main className={`flex-1 overflow-auto ${showSidebar ? 'ml-64 p-8' : ''}`}>
               {children}
             </main>
           </div>
