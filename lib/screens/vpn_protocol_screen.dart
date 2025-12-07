@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/sdui_service.dart';
+import '../user_manager.dart';
 
 class VpnProtocolScreen extends StatefulWidget {
   const VpnProtocolScreen({super.key});
@@ -10,6 +11,7 @@ class VpnProtocolScreen extends StatefulWidget {
 
 class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
   final SduiService _sduiService = SduiService();
+  final UserManager _userManager = UserManager();
   
   // 0: Auto, 1: TCP, 2: UDP
   int _selectedOption = 0;
@@ -22,6 +24,8 @@ class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
   @override
   void initState() {
     super.initState();
+    // Load current selection from UserManager
+    _selectedOption = _userManager.vpnProtocol.value;
     _loadServerConfig();
   }
 
@@ -36,12 +40,30 @@ class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
             _isLoading = false;
           });
         } else {
-          setState(() => _isLoading = false);
+          // Use default protocols if SDUI not configured
+          setState(() {
+            _protocols = [
+              {'index': 0, 'title': 'Auto (WebSocket)', 'description': 'Recommended - Best compatibility, uses port 443'},
+              {'index': 1, 'title': 'TCP', 'description': 'Direct TCP connection on port 8443'},
+              {'index': 2, 'title': 'UDP (QUIC)', 'description': 'Fast UDP connection on port 4434, better for streaming'},
+            ];
+            _isLoading = false;
+          });
         }
       }
     } catch (e) {
       debugPrint("SDUI Error: $e");
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          // Use default protocols on error
+          _protocols = [
+            {'index': 0, 'title': 'Auto (WebSocket)', 'description': 'Recommended - Best compatibility, uses port 443'},
+            {'index': 1, 'title': 'TCP', 'description': 'Direct TCP connection on port 8443'},
+            {'index': 2, 'title': 'UDP (QUIC)', 'description': 'Fast UDP connection on port 4434, better for streaming'},
+          ];
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -93,7 +115,19 @@ class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
       onTap: () {
         setState(() {
           _selectedOption = index;
+          // Save to UserManager
+          _userManager.vpnProtocol.value = index;
         });
+        
+        // Show confirmation
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Protocol changed to ${_userManager.getProtocolName()}'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.deepPurple,
+          ),
+        );
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),

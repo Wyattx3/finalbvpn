@@ -515,7 +515,12 @@ class _HomeScreenState extends State<HomeScreen> {
       isConnecting = true;
     });
     
-    // Measure ping to server during connection
+    // Get port based on selected protocol
+    final port = _userManager.getPortForProtocol();
+    final protocolName = _userManager.getProtocolName();
+    debugPrint('🔌 Connecting with protocol: $protocolName on port $port');
+    
+    // Measure ping to server during connection using selected protocol port
     if (_selectedServer != null) {
       final address = _selectedServer!['address'] as String?;
       if (address != null) {
@@ -536,6 +541,8 @@ class _HomeScreenState extends State<HomeScreen> {
         final deviceId = await _firebaseService.getDeviceId();
         final serverId = _selectedServer?['id'] as String? ?? 'unknown';
         _speedService.startSpeedMonitoring(serverId, deviceId);
+        
+        debugPrint('✅ Connected via $protocolName');
       }
     });
   }

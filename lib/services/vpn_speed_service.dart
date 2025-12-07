@@ -29,30 +29,39 @@ class VpnSpeedService {
   DateTime? _sessionStartTime;
 
   /// Measure ping to a server address
-  Future<int> measurePing(String address) async {
+  /// [port] - Optional port to use, defaults to 443
+  Future<int> measurePing(String address, {int? port}) async {
     try {
+      final targetPort = port ?? 443;
       final stopwatch = Stopwatch()..start();
       
-      // Try TCP connection to port 443 (or 80 as fallback)
+      // Try TCP connection to specified port
       Socket? socket;
       try {
         socket = await Socket.connect(
           address, 
-          443, 
+          targetPort, 
           timeout: const Duration(seconds: 3),
         );
         socket.destroy();
       } catch (_) {
-        // Try port 8443
-        try {
-          socket = await Socket.connect(
-            address, 
-            8443, 
-            timeout: const Duration(seconds: 3),
-          );
-          socket.destroy();
-        } catch (_) {
-          // If connection fails, return high latency
+        // Try fallback ports
+        final fallbackPorts = [443, 8443, 4434].where((p) => p != targetPort).toList();
+        for (final fallbackPort in fallbackPorts) {
+          try {
+            socket = await Socket.connect(
+              address, 
+              fallbackPort, 
+              timeout: const Duration(seconds: 3),
+            );
+            socket.destroy();
+            break;
+          } catch (_) {
+            continue;
+          }
+        }
+        if (socket == null) {
+          // If all connections fail, return high latency
           return 999;
         }
       }

@@ -13,12 +13,15 @@ admin.initializeApp({
 const db = admin.firestore();
 
 // Real V2Ray VPN Servers on Google Cloud
+// Supports: WebSocket (443), TCP (8443), QUIC/UDP (4434)
 const realServers = [
   {
     name: 'Singapore SG1',
     flag: '🇸🇬',
     address: '35.240.143.211',
-    port: 443,
+    port: 443,           // WebSocket (Auto/Default)
+    tcpPort: 8443,       // Raw TCP
+    udpPort: 4434,       // QUIC (UDP)
     uuid: '22b67392-449a-46fa-b33a-f41e08d57fce',
     alterId: 0,
     security: 'auto',
@@ -31,14 +34,16 @@ const realServers = [
     load: 0,
     bandwidthUsed: 0,
     totalConnections: 0,
-    // TCP port for raw VMess
-    tcpPort: 8443,
+    supportsTcp: true,
+    supportsUdp: true,
   },
   {
     name: 'Japan JP1',
     flag: '🇯🇵',
     address: '35.194.102.131',
     port: 443,
+    tcpPort: 8443,
+    udpPort: 4434,
     uuid: 'bc8756eb-ce08-42b9-8b72-2e8d3b831ce2',
     alterId: 0,
     security: 'auto',
@@ -51,13 +56,16 @@ const realServers = [
     load: 0,
     bandwidthUsed: 0,
     totalConnections: 0,
-    tcpPort: 8443,
+    supportsTcp: true,
+    supportsUdp: true,
   },
   {
     name: 'United States US1',
     flag: '🇺🇸',
     address: '34.55.189.61',
     port: 443,
+    tcpPort: 8443,
+    udpPort: 4434,
     uuid: '3f3c63d1-3650-4860-985a-6ea5f481d258',
     alterId: 0,
     security: 'auto',
@@ -70,7 +78,8 @@ const realServers = [
     load: 0,
     bandwidthUsed: 0,
     totalConnections: 0,
-    tcpPort: 8443,
+    supportsTcp: true,
+    supportsUdp: true,
   }
 ];
 

@@ -34,6 +34,39 @@ class UserManager {
   // Display Latency Setting
   final ValueNotifier<bool> displayLatency = ValueNotifier(true);
   
+  // VPN Protocol Setting: 0 = Auto, 1 = TCP, 2 = UDP (QUIC)
+  final ValueNotifier<int> vpnProtocol = ValueNotifier(0);
+  
+  /// Get the port to use based on selected protocol
+  /// Auto (0) uses WebSocket on 443
+  /// TCP (1) uses raw TCP on 8443
+  /// UDP (2) uses QUIC on 4434
+  int getPortForProtocol() {
+    switch (vpnProtocol.value) {
+      case 1: return 8443;  // TCP
+      case 2: return 4434;  // UDP (QUIC)
+      default: return 443;  // Auto (WebSocket)
+    }
+  }
+  
+  /// Get the network type for V2Ray based on selected protocol
+  String getNetworkForProtocol() {
+    switch (vpnProtocol.value) {
+      case 1: return 'tcp';
+      case 2: return 'quic';
+      default: return 'ws';
+    }
+  }
+  
+  /// Get protocol name for display
+  String getProtocolName() {
+    switch (vpnProtocol.value) {
+      case 1: return 'TCP';
+      case 2: return 'UDP (QUIC)';
+      default: return 'Auto (WebSocket)';
+    }
+  }
+  
   Timer? _timer;
   StreamSubscription? _balanceSubscription;
   VoidCallback? onTimeExpired; // Callback to disconnect VPN
