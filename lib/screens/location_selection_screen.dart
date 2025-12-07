@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
+import '../services/vpn_speed_service.dart';
 
 class LocationSelectionScreen extends StatefulWidget {
   const LocationSelectionScreen({super.key});
@@ -10,6 +11,7 @@ class LocationSelectionScreen extends StatefulWidget {
 
 class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
   final FirebaseService _firebaseService = FirebaseService();
+  final VpnSpeedService _speedService = VpnSpeedService();
   
   int selectedTabIndex = 0; // 0 for Universal, 1 for Streaming
   String selectedLocation = '';
@@ -18,6 +20,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
   Map<String, List<Map<String, dynamic>>> _universalLocations = {};
   Map<String, List<Map<String, dynamic>>> _streamingLocations = {};
   bool _isLoading = true;
+  bool _isMeasuringPing = false;
 
   @override
   void initState() {
@@ -44,14 +47,49 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
         
         setState(() {
           _universalLocations = grouped;
-          // Streaming locations - filter servers that support streaming (or use all for now)
           _streamingLocations = grouped;
           _isLoading = false;
         });
+        
+        // Measure ping for all servers in background
+        _measureAllPings(servers);
       }
     } catch (e) {
       debugPrint('Error loading servers: $e');
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _measureAllPings(List<Map<String, dynamic>> servers) async {
+    if (_isMeasuringPing) return;
+    
+    setState(() => _isMeasuringPing = true);
+    
+    for (var server in servers) {
+      if (!mounted) break;
+      
+      final address = server['address'] as String?;
+      if (address != null) {
+        final ping = await _speedService.measurePing(address);
+        
+        if (mounted) {
+          // Update server with ping value
+          setState(() {
+            // Find and update server in grouped maps
+            for (var country in _universalLocations.keys) {
+              for (var s in _universalLocations[country]!) {
+                if (s['id'] == server['id']) {
+                  s['latency'] = ping;
+                }
+              }
+            }
+          });
+        }
+      }
+    }
+    
+    if (mounted) {
+      setState(() => _isMeasuringPing = false);
     }
   }
 

@@ -10,6 +10,7 @@ import 'network_error_screen.dart';
 import '../user_manager.dart';
 import '../services/sdui_service.dart';
 import '../services/firebase_service.dart';
+import '../services/vpn_speed_service.dart';
 import '../utils/message_dialog.dart';
 import '../utils/review_utils.dart';
 import 'dynamic_popup_screen.dart';
@@ -34,7 +35,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final UserManager _userManager = UserManager();
   final SduiService _sduiService = SduiService();
   final FirebaseService _firebaseService = FirebaseService();
+  final VpnSpeedService _speedService = VpnSpeedService();
   static const platform = MethodChannel('com.example.vpn_app/notification');
+  
+  // Current selected server
+  Map<String, dynamic>? _selectedServer;
 
   // SDUI Config
   Map<String, dynamic> _config = {};
@@ -107,10 +112,17 @@ class _HomeScreenState extends State<HomeScreen> {
         final firstServer = servers.first;
         setState(() {
           _servers = servers;
+          _selectedServer = firstServer;
           currentLocation = '${firstServer['country']} - ${firstServer['name']}';
           currentFlag = firstServer['flag'] ?? '🌍';
         });
         print('✅ Loaded ${servers.length} servers. Default: $currentLocation');
+        
+        // Measure ping for the selected server
+        final address = firstServer['address'] as String?;
+        if (address != null) {
+          _speedService.updatePingForServer(address);
+        }
       } else {
         // Fallback if no servers
         setState(() {
@@ -398,6 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _popupSubscription?.cancel();
     _maintenanceSubscription?.cancel();
     _userManager.stopTimer();
+    _speedService.stopSpeedMonitoring();
     _stopNotification();
     super.dispose();
   }
@@ -465,6 +478,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (isConnected) {
       _userManager.stopTimer();
+      _speedService.stopSpeedMonitoring(); // Stop speed monitoring
       setState(() {
         isConnected = false;
       });
@@ -495,13 +509,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _simulateConnection() {
+  void _simulateConnection() async {
     _connectionCancelled = false;
     setState(() {
       isConnecting = true;
     });
     
-    Future.delayed(const Duration(seconds: 2), () {
+    // Measure ping to server during connection
+    if (_selectedServer != null) {
+      final address = _selectedServer!['address'] as String?;
+      if (address != null) {
+        await _speedService.updatePingForServer(address);
+      }
+    }
+    
+    Future.delayed(const Duration(seconds: 2), () async {
       if (mounted && !_connectionCancelled) {
         setState(() {
           isConnecting = false;
@@ -509,6 +531,11 @@ class _HomeScreenState extends State<HomeScreen> {
         });
         _userManager.startTimer();
         _startNotification();
+        
+        // Start speed monitoring
+        final deviceId = await _firebaseService.getDeviceId();
+        final serverId = _selectedServer?['id'] as String? ?? 'unknown';
+        _speedService.startSpeedMonitoring(serverId, deviceId);
       }
     });
   }
@@ -659,7 +686,14 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         currentLocation = result['location'];
         currentFlag = result['flag'] ?? '🏳️';
+        _selectedServer = result['server'] as Map<String, dynamic>?;
       });
+      
+      // Update ping for new server
+      final address = _selectedServer?['address'] as String?;
+      if (address != null) {
+        _speedService.updatePingForServer(address);
+      }
     }
   }
 
@@ -981,37 +1015,57 @@ class _HomeScreenState extends State<HomeScreen> {
                             if (showLatency) ...[
                               Divider(color: isDark ? Colors.grey.shade800 : Colors.grey.shade300, height: 1),
                               const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Text(
-                                    isConnected ? 'IP 66.93.155.247' : 'IP -.-.-.-',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: textColor.withOpacity(0.7),
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Icon(Icons.arrow_downward, size: 12, color: isConnected ? Colors.green : Colors.grey),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isConnected ? '1.0KB/s' : '0KB/s',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: textColor.withOpacity(0.7),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Icon(Icons.arrow_upward, size: 12, color: isConnected ? Colors.purple : Colors.grey),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isConnected ? '86B/s' : '0B/s',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: textColor.withOpacity(0.7),
-                                    ),
-                                  ),
-                                ],
+                              ValueListenableBuilder<int>(
+                                valueListenable: _speedService.pingMs,
+                                builder: (context, ping, child) {
+                                  return ValueListenableBuilder<double>(
+                                    valueListenable: _speedService.downloadSpeed,
+                                    builder: (context, download, child) {
+                                      return ValueListenableBuilder<double>(
+                                        valueListenable: _speedService.uploadSpeed,
+                                        builder: (context, upload, child) {
+                                          return Row(
+                                            children: [
+                                              // Ping display
+                                              Icon(Icons.network_ping, size: 12, color: isConnected ? Colors.blue : Colors.grey),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '${ping > 0 ? ping : '-'}ms',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: ping < 100 ? Colors.green : (ping < 200 ? Colors.orange : Colors.red),
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              // Download speed
+                                              Icon(Icons.arrow_downward, size: 12, color: isConnected ? Colors.green : Colors.grey),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                isConnected ? _speedService.downloadSpeedString : '0 B/s',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: textColor.withOpacity(0.7),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              // Upload speed
+                                              Icon(Icons.arrow_upward, size: 12, color: isConnected ? Colors.purple : Colors.grey),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                isConnected ? _speedService.uploadSpeedString : '0 B/s',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: textColor.withOpacity(0.7),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      );
+                                    },
+                                  );
+                                },
                               ),
                               const Spacer(),
                             ] else ...[
