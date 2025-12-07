@@ -37,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final FirebaseService _firebaseService = FirebaseService();
   final VpnSpeedService _speedService = VpnSpeedService();
   static const platform = MethodChannel('com.example.vpn_app/notification');
+  static const vpnPlatform = MethodChannel('com.example.vpn_app/vpn');
   
   // Current selected server
   Map<String, dynamic>? _selectedServer;
@@ -479,6 +480,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (isConnected) {
       _userManager.stopTimer();
       _speedService.stopSpeedMonitoring(); // Stop speed monitoring
+      
+      // Disconnect VPN service
+      try {
+        await vpnPlatform.invokeMethod('disconnectVpn');
+        debugPrint('📱 VPN disconnected');
+      } catch (e) {
+        debugPrint('❌ Error disconnecting VPN: $e');
+      }
+      
       setState(() {
         isConnected = false;
       });
@@ -518,33 +528,73 @@ class _HomeScreenState extends State<HomeScreen> {
     // Get port based on selected protocol
     final port = _userManager.getPortForProtocol();
     final protocolName = _userManager.getProtocolName();
+    final networkType = _userManager.getNetworkForProtocol();
     debugPrint('🔌 Connecting with protocol: $protocolName on port $port');
     
-    // Measure ping to server during connection using selected protocol port
-    if (_selectedServer != null) {
-      final address = _selectedServer!['address'] as String?;
-      if (address != null) {
-        await _speedService.updatePingForServer(address);
+    // Request VPN permission and connect
+    try {
+      final serverAddress = _selectedServer?['address'] as String? ?? '';
+      final uuid = _selectedServer?['uuid'] as String? ?? '';
+      
+      // Call native VPN connection
+      final result = await vpnPlatform.invokeMethod('connectVpn', {
+        'server_address': serverAddress,
+        'server_port': port,
+        'protocol': networkType,
+        'uuid': uuid,
+      });
+      
+      debugPrint('📱 VPN connect result: $result');
+      
+      if (result['success'] == true) {
+        // Measure ping to server
+        if (serverAddress.isNotEmpty) {
+          await _speedService.updatePingForServer(serverAddress);
+        }
+        
+        if (mounted && !_connectionCancelled) {
+          setState(() {
+            isConnecting = false;
+            isConnected = true;
+          });
+          _userManager.startTimer();
+          _startNotification();
+          
+          // Start speed monitoring
+          final deviceId = await _firebaseService.getDeviceId();
+          final serverId = _selectedServer?['id'] as String? ?? 'unknown';
+          _speedService.startSpeedMonitoring(serverId, deviceId);
+          
+          debugPrint('✅ Connected via $protocolName');
+        }
+      } else {
+        // Permission denied or connection failed
+        if (mounted) {
+          setState(() {
+            isConnecting = false;
+          });
+          showMessageDialog(
+            context,
+            message: result['error'] ?? 'VPN permission required',
+            type: MessageType.warning,
+            title: 'Connection Failed',
+          );
+        }
       }
-    }
-    
-    Future.delayed(const Duration(seconds: 2), () async {
-      if (mounted && !_connectionCancelled) {
+    } on PlatformException catch (e) {
+      debugPrint('❌ VPN Platform error: ${e.message}');
+      if (mounted) {
         setState(() {
           isConnecting = false;
-          isConnected = true;
         });
-        _userManager.startTimer();
-        _startNotification();
-        
-        // Start speed monitoring
-        final deviceId = await _firebaseService.getDeviceId();
-        final serverId = _selectedServer?['id'] as String? ?? 'unknown';
-        _speedService.startSpeedMonitoring(serverId, deviceId);
-        
-        debugPrint('✅ Connected via $protocolName');
+        showMessageDialog(
+          context,
+          message: 'Failed to connect: ${e.message}',
+          type: MessageType.error,
+          title: 'Error',
+        );
       }
-    });
+    }
   }
 
   void _showAdDialog() {

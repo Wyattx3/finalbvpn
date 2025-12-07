@@ -1,15 +1,18 @@
 package com.example.vpn_app
 
 import android.Manifest
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.RemoteViews
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
@@ -23,9 +26,11 @@ import java.util.TimerTask
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.vpn_app/notification"
+    private val VPN_CHANNEL = "com.example.vpn_app/vpn"
     private val NOTIFICATION_CHANNEL_ID = "vpn_status_channel_v2"
     private val NOTIFICATION_ID = 1
     private val PERMISSION_REQUEST_CODE = 100
+    private val VPN_PERMISSION_REQUEST_CODE = 101
 
     private var timer: Timer? = null
     private var remainingSeconds: Long = 0
@@ -33,12 +38,20 @@ class MainActivity : FlutterActivity() {
     private var currentFlag = "🏳️"
     private var isRunning = false
     private var showTimer = true
+    
+    // VPN connection parameters (stored for after permission grant)
+    private var pendingVpnResult: MethodChannel.Result? = null
+    private var pendingServerAddress: String? = null
+    private var pendingServerPort: Int = 443
+    private var pendingProtocol: String = "ws"
+    private var pendingUuid: String? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
         requestNotificationPermission()
         
+        // Notification Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startNotification" -> {
@@ -69,6 +82,118 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+        
+        // VPN Channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VPN_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "requestVpnPermission" -> {
+                    requestVpnPermission(result)
+                }
+                "connectVpn" -> {
+                    val serverAddress = call.argument<String>("server_address") ?: ""
+                    val serverPort = call.argument<Int>("server_port") ?: 443
+                    val protocol = call.argument<String>("protocol") ?: "ws"
+                    val uuid = call.argument<String>("uuid") ?: ""
+                    
+                    connectVpn(serverAddress, serverPort, protocol, uuid, result)
+                }
+                "disconnectVpn" -> {
+                    disconnectVpn()
+                    result.success(mapOf("success" to true))
+                }
+                "isVpnConnected" -> {
+                    result.success(BvpnVpnService.isRunning)
+                }
+                "hasVpnPermission" -> {
+                    val intent = VpnService.prepare(this)
+                    result.success(intent == null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+    
+    private fun requestVpnPermission(result: MethodChannel.Result) {
+        val intent = VpnService.prepare(this)
+        if (intent != null) {
+            // Need to request permission
+            pendingVpnResult = result
+            startActivityForResult(intent, VPN_PERMISSION_REQUEST_CODE)
+        } else {
+            // Already have permission
+            result.success(mapOf("granted" to true))
+        }
+    }
+    
+    private fun connectVpn(serverAddress: String, serverPort: Int, protocol: String, uuid: String, result: MethodChannel.Result) {
+        Log.d("MainActivity", "Connecting VPN to $serverAddress:$serverPort via $protocol")
+        
+        // Check VPN permission first
+        val intent = VpnService.prepare(this)
+        if (intent != null) {
+            // Need permission - store params and request
+            pendingVpnResult = result
+            pendingServerAddress = serverAddress
+            pendingServerPort = serverPort
+            pendingProtocol = protocol
+            pendingUuid = uuid
+            startActivityForResult(intent, VPN_PERMISSION_REQUEST_CODE)
+            return
+        }
+        
+        // Start VPN service
+        startVpnService(serverAddress, serverPort, protocol, uuid)
+        result.success(mapOf("success" to true))
+    }
+    
+    private fun startVpnService(serverAddress: String, serverPort: Int, protocol: String, uuid: String) {
+        val serviceIntent = Intent(this, BvpnVpnService::class.java).apply {
+            action = "CONNECT"
+            putExtra("server_address", serverAddress)
+            putExtra("server_port", serverPort)
+            putExtra("protocol", protocol)
+            putExtra("uuid", uuid)
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+    
+    private fun disconnectVpn() {
+        Log.d("MainActivity", "Disconnecting VPN")
+        val serviceIntent = Intent(this, BvpnVpnService::class.java).apply {
+            action = "DISCONNECT"
+        }
+        startService(serviceIntent)
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        if (requestCode == VPN_PERMISSION_REQUEST_CODE) {
+            if (resultCode == Activity.RESULT_OK) {
+                Log.d("MainActivity", "VPN permission granted")
+                
+                // If we have pending connection params, connect now
+                if (pendingServerAddress != null && pendingUuid != null) {
+                    startVpnService(pendingServerAddress!!, pendingServerPort, pendingProtocol, pendingUuid!!)
+                    pendingVpnResult?.success(mapOf("success" to true))
+                } else {
+                    pendingVpnResult?.success(mapOf("granted" to true))
+                }
+            } else {
+                Log.d("MainActivity", "VPN permission denied")
+                pendingVpnResult?.success(mapOf("granted" to false, "success" to false, "error" to "Permission denied"))
+            }
+            
+            // Clear pending data
+            pendingVpnResult = null
+            pendingServerAddress = null
+            pendingUuid = null
         }
     }
 
