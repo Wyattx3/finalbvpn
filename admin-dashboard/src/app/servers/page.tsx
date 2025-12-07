@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Search, Signal, Power, Edit, Trash2, X, Save, Copy, RefreshCw, Activity, Wifi } from "lucide-react";
+import { Plus, Search, Signal, Power, Edit, Trash2, X, Save, Copy, RefreshCw, Activity } from "lucide-react";
 
 // Helper function to format bytes
 const formatBytes = (bytes: number): string => {
@@ -27,10 +27,10 @@ interface V2RayServer {
   country: string;
   load: number;
   status: "online" | "offline" | "maintenance";
-  latency?: number;
   bandwidthUsed?: number;
   totalConnections?: number;
   tcpPort?: number;
+  udpPort?: number;
 }
 
 // Predefined Country List
@@ -272,7 +272,6 @@ export default function ServersPage() {
               <th className="px-6 py-3">Node Name</th>
               <th className="px-6 py-3">Address</th>
               <th className="px-6 py-3">Transport</th>
-              <th className="px-6 py-3">Latency</th>
               <th className="px-6 py-3">Bandwidth</th>
               <th className="px-6 py-3">Status</th>
               <th className="px-6 py-3 text-right">Actions</th>
@@ -308,20 +307,6 @@ export default function ServersPage() {
                         TLS
                       </span>
                     )}
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-1">
-                    <Wifi className={`h-3 w-3 ${
-                      server.latency && server.latency < 100 ? 'text-green-500' : 
-                      server.latency && server.latency < 200 ? 'text-yellow-500' : 'text-red-500'
-                    }`} />
-                    <span className={`text-xs font-medium ${
-                      server.latency && server.latency < 100 ? 'text-green-600 dark:text-green-400' : 
-                      server.latency && server.latency < 200 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'
-                    }`}>
-                      {server.latency ? `${server.latency}ms` : '-'}
-                    </span>
                   </div>
                 </td>
                 <td className="px-6 py-4">
