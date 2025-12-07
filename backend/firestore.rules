@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ========== HELPER FUNCTIONS ==========
+    function isAdmin() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // ========== DEVICES COLLECTION ==========
+    // Allow devices to register and update themselves
+    match /devices/{deviceId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+    
+    // ========== ACTIVITY LOGS ==========
+    // Allow devices to create activity logs
+    match /activity_logs/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // ========== LOGIN ACTIVITY (VPN App) ==========
+    // Allow read for dashboard, create for app
+    match /login_activity/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // ========== ADMIN LOGIN ACTIVITY ==========
+    // Admin dashboard login history
+    match /admin_login_activity/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+    
+    // ========== WITHDRAWALS ==========
+    // Allow devices to create withdrawals, read their own
+    match /withdrawals/{withdrawalId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+    
+    // ========== VPN SERVERS ==========
+    // Public read for all users
+    match /servers/{serverId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // ========== SDUI CONFIGS ==========
+    // Public read for UI configurations
+    // Write allowed for admin dashboard (TODO: add proper auth in production)
+    match /sdui_configs/{screenId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // ========== APP SETTINGS ==========
+    // Public read for app settings
+    match /app_settings/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // ========== ADMINS COLLECTION ==========
+    // Only admins can read admin list
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+  }
+}

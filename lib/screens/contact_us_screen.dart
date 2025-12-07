@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 import '../utils/message_dialog.dart';
 
 class ContactUsScreen extends StatefulWidget {
@@ -11,7 +11,7 @@ class ContactUsScreen extends StatefulWidget {
 }
 
 class _ContactUsScreenState extends State<ContactUsScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   
   final TextEditingController _subjectController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();

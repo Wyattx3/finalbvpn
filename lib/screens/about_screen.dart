@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 import '../utils/message_dialog.dart';
 
 class AboutScreen extends StatefulWidget {
@@ -10,7 +10,7 @@ class AboutScreen extends StatefulWidget {
 }
 
 class _AboutScreenState extends State<AboutScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
 
@@ -51,10 +51,10 @@ class _AboutScreenState extends State<AboutScreen> {
     final textColor = isDark ? Colors.white : Colors.black;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
-    final primaryPurple = isDark ? const Color(0xFFB388FF) : const Color(0xFF7E57C2);
+    final primaryBlue = const Color(0xFF2196F3); // Match logo color
 
-    final appName = _config['app_name'] ?? 'VPN App';
-    final version = _config['version'] ?? '1.0.0';
+    final appName = _config['app_name'] ?? 'Suf Fhoke VPN';
+    final version = _config['version'] ?? '1.0.1';
     final description = _config['description'] ?? 'Secure & Private VPN';
 
     return Scaffold(
@@ -74,31 +74,26 @@ class _AboutScreenState extends State<AboutScreen> {
             children: [
               const Spacer(flex: 1),
               
-              // App Logo
+              // App Logo - Using actual app icon
               Container(
                 width: 100,
                 height: 100,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isDark 
-                      ? [const Color(0xFF7C4DFF), const Color(0xFFB388FF)]
-                      : [const Color(0xFF7E57C2), const Color(0xFFB39DDB)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: primaryPurple.withOpacity(0.3),
+                      color: primaryBlue.withOpacity(0.2),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.shield,
-                  size: 50,
-                  color: Colors.white,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Image.asset(
+                    'assets/images/app_icon.png',
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
               
@@ -118,13 +113,13 @@ class _AboutScreenState extends State<AboutScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
-                  color: primaryPurple.withOpacity(0.1),
+                  color: primaryBlue.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   'Version $version',
                   style: TextStyle(
-                    color: primaryPurple,
+                    color: primaryBlue,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -159,8 +154,8 @@ class _AboutScreenState extends State<AboutScreen> {
                   icon: const Icon(Icons.refresh),
                   label: const Text('Check for Updates'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: primaryPurple,
-                    side: BorderSide(color: primaryPurple),
+                    foregroundColor: primaryBlue,
+                    side: BorderSide(color: primaryBlue),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),

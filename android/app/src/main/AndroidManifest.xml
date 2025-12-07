@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <application
-        android:label="vpn_app"
+        android:label="Suf Fhoke VPN"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

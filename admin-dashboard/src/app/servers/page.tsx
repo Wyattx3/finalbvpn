@@ -1,62 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Search, Signal, Power, Edit, Trash2, X, Save, Copy } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Search, Signal, Power, Edit, Trash2, X, Save, Copy, RefreshCw } from "lucide-react";
 
 interface V2RayServer {
-  id: number;
+  id: string;
   name: string;
   flag: string;
-  address: string; // IP or Domain
+  address: string;
   port: number;
   uuid: string;
   alterId: number;
   security: "auto" | "none" | "aes-128-gcm" | "chacha20-poly1305";
   network: "tcp" | "ws" | "grpc" | "h2";
-  path: string; // For WS/GRPC
+  path: string;
   tls: boolean;
   country: string;
   load: number;
   status: "online" | "offline" | "maintenance";
-  isPremium: boolean;
 }
-
-const initialServers: V2RayServer[] = [
-  {
-    id: 1,
-    name: "Singapore SG1",
-    flag: "🇸🇬",
-    address: "sg1.vpnapp.com",
-    port: 443,
-    uuid: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-    alterId: 0,
-    security: "auto",
-    network: "ws",
-    path: "/vpn",
-    tls: true,
-    country: "Singapore",
-    load: 45,
-    status: "online",
-    isPremium: false,
-  },
-  {
-    id: 2,
-    name: "Japan JP1",
-    flag: "🇯🇵",
-    address: "jp1.vpnapp.com",
-    port: 443,
-    uuid: "b2c3d4e5-f6a7-8901-2345-678901bcdef1",
-    alterId: 0,
-    security: "auto",
-    network: "ws",
-    path: "/api",
-    tls: true,
-    country: "Japan",
-    load: 12,
-    status: "online",
-    isPremium: true,
-  },
-];
 
 // Predefined Country List
 const countryList = [
@@ -79,10 +41,31 @@ const countryList = [
 ];
 
 export default function ServersPage() {
-  const [servers, setServers] = useState<V2RayServer[]>(initialServers);
+  const [servers, setServers] = useState<V2RayServer[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<V2RayServer | null>(null);
+
+  // Fetch servers from Firebase
+  const fetchServers = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/servers');
+      const data = await response.json();
+      if (data.success) {
+        setServers(data.servers);
+      }
+    } catch (error) {
+      console.error('Failed to fetch servers:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchServers();
+  }, [fetchServers]);
 
   // Form State
   const [formData, setFormData] = useState<Partial<V2RayServer>>({
@@ -98,7 +81,6 @@ export default function ServersPage() {
     path: "/",
     tls: true,
     status: "online",
-    isPremium: false,
     load: 0,
   });
 
@@ -121,7 +103,6 @@ export default function ServersPage() {
         path: "/",
         tls: true,
         status: "online",
-        isPremium: false,
         load: 0,
       });
     }
@@ -144,25 +125,68 @@ export default function ServersPage() {
     }
   };
 
-  const handleSave = () => {
-    if (editingServer) {
-      // Update existing
-      setServers(servers.map(s => s.id === editingServer.id ? { ...s, ...formData } as V2RayServer : s));
-    } else {
-      // Add new
-      const newServer = {
-        ...formData,
-        id: servers.length + 1,
-        load: 0,
-      } as V2RayServer;
-      setServers([...servers, newServer]);
+  const handleSave = async () => {
+    try {
+      if (editingServer) {
+        // Update existing
+        const response = await fetch('/api/servers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'update',
+            serverId: editingServer.id,
+            ...formData,
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          setServers(servers.map(s => s.id === editingServer.id ? { ...s, ...formData } as V2RayServer : s));
+        }
+      } else {
+        // Add new
+        const response = await fetch('/api/servers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'add',
+            ...formData,
+            load: 0,
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          const newServer = {
+            ...formData,
+            id: data.serverId,
+            load: 0,
+          } as V2RayServer;
+          setServers([...servers, newServer]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save server:', error);
     }
     handleCloseModal();
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Are you sure you want to delete this server?")) {
-      setServers(servers.filter(s => s.id !== id));
+      try {
+        const response = await fetch('/api/servers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'delete',
+            serverId: id,
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          setServers(servers.filter(s => s.id !== id));
+        }
+      } catch (error) {
+        console.error('Failed to delete server:', error);
+      }
     }
   };
 
@@ -236,7 +260,6 @@ export default function ServersPage() {
               <th className="px-6 py-3">Address</th>
               <th className="px-6 py-3">Transport</th>
               <th className="px-6 py-3">Status</th>
-              <th className="px-6 py-3">Type</th>
               <th className="px-6 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -282,13 +305,6 @@ export default function ServersPage() {
                     {server.status === "offline" && <Power className="mr-1 h-3 w-3" />}
                     {server.status}
                   </span>
-                </td>
-                <td className="px-6 py-4">
-                  {server.isPremium ? (
-                    <span className="text-amber-600 font-semibold text-xs dark:text-amber-400">Premium</span>
-                  ) : (
-                    <span className="text-gray-500 text-xs dark:text-gray-400">Free</span>
-                  )}
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-2">
@@ -483,16 +499,6 @@ export default function ServersPage() {
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       <label htmlFor="tls" className="text-xs font-medium text-gray-700 dark:text-gray-300">Enable TLS</label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="isPremium"
-                        checked={formData.isPremium}
-                        onChange={(e) => setFormData({...formData, isPremium: e.target.checked})}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <label htmlFor="isPremium" className="text-xs font-medium text-gray-700 dark:text-gray-300">Premium Node</label>
                     </div>
                   </div>
                 </div>

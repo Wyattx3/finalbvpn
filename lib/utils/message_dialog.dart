@@ -9,11 +9,13 @@ enum MessageType { success, error, info, warning }
 /// [message] - The message to display
 /// [type] - The type of message (success, error, info, warning)
 /// [title] - Optional title for the dialog
+/// [onOkPressed] - Optional callback when OK is pressed
 void showMessageDialog(
   BuildContext context, {
   required String message,
   MessageType type = MessageType.info,
   String? title,
+  VoidCallback? onOkPressed,
 }) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
   final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
@@ -130,7 +132,10 @@ void showMessageDialog(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    onOkPressed?.call();
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: iconColor,
                     foregroundColor: Colors.white,

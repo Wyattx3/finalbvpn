@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 
 class TermsOfServiceScreen extends StatefulWidget {
   const TermsOfServiceScreen({super.key});
@@ -9,7 +9,7 @@ class TermsOfServiceScreen extends StatefulWidget {
 }
 
 class _TermsOfServiceScreenState extends State<TermsOfServiceScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
 

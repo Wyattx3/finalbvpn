@@ -32,6 +32,7 @@ class MainActivity : FlutterActivity() {
     private var currentLocation = "Unknown"
     private var currentFlag = "🏳️"
     private var isRunning = false
+    private var showTimer = true
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -44,11 +45,22 @@ class MainActivity : FlutterActivity() {
                     val location = call.argument<String>("location") ?: "Unknown"
                     val flag = call.argument<String>("flag") ?: "🏳️"
                     val remaining = call.argument<Int>("remaining_seconds")?.toLong() ?: 0
-                    startNotification(location, flag, remaining)
+                    val timerVisible = call.argument<Boolean>("show_timer") ?: true
+                    startNotification(location, flag, remaining, timerVisible)
                     result.success(null)
                 }
                 "stopNotification" -> {
                     stopNotification()
+                    result.success(null)
+                }
+                "updateNotificationTime" -> {
+                    val remaining = call.argument<Int>("remaining_seconds")?.toLong() ?: remainingSeconds
+                    updateNotificationTime(remaining)
+                    result.success(null)
+                }
+                "updateShowTimer" -> {
+                    val timerVisible = call.argument<Boolean>("show_timer") ?: true
+                    updateShowTimer(timerVisible)
                     result.success(null)
                 }
                 "requestPermission" -> {
@@ -82,7 +94,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun startNotification(location: String, flag: String, remaining: Long) {
+    private fun startNotification(location: String, flag: String, remaining: Long, timerVisible: Boolean = true) {
         if (isRunning) return
         
         if (!hasNotificationPermission()) {
@@ -93,6 +105,7 @@ class MainActivity : FlutterActivity() {
         currentLocation = location
         currentFlag = flag
         remainingSeconds = remaining
+        showTimer = timerVisible
 
         createNotificationChannel()
         startTimer()
@@ -104,6 +117,24 @@ class MainActivity : FlutterActivity() {
         timer = null
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(NOTIFICATION_ID)
+    }
+
+    private fun updateNotificationTime(newRemainingSeconds: Long) {
+        // Only update if there's a significant difference (more than 60 seconds)
+        // This handles admin adjustments
+        if (Math.abs(newRemainingSeconds - remainingSeconds) > 60) {
+            remainingSeconds = newRemainingSeconds
+            if (isRunning) {
+                updateNotification()
+            }
+        }
+    }
+
+    private fun updateShowTimer(timerVisible: Boolean) {
+        showTimer = timerVisible
+        if (isRunning) {
+            updateNotification()
+        }
     }
 
     private fun startTimer() {
@@ -134,41 +165,48 @@ class MainActivity : FlutterActivity() {
             val s = remainingSeconds % 60
 
             val notificationLayout = RemoteViews(packageName, R.layout.custom_notification)
-            notificationLayout.setTextViewText(R.id.tv_hours, h.toString())
-            notificationLayout.setTextViewText(R.id.tv_minutes, String.format("%02d", m))
-            notificationLayout.setTextViewText(R.id.tv_seconds, String.format("%02d", s))
             notificationLayout.setTextViewText(R.id.tv_location, currentLocation)
             notificationLayout.setTextViewText(R.id.tv_flag, currentFlag)
             
-            // Dynamic Colors
-            val blueColor = android.graphics.Color.parseColor("#448AFF")
-            val greyColor = android.graphics.Color.parseColor("#888888")
+            // Show/Hide timer section based on SDUI config
+            val timerVisibility = if (showTimer) android.view.View.VISIBLE else android.view.View.GONE
+            notificationLayout.setViewVisibility(R.id.timer_section, timerVisibility)
+            
+            if (showTimer) {
+                notificationLayout.setTextViewText(R.id.tv_hours, h.toString())
+                notificationLayout.setTextViewText(R.id.tv_minutes, String.format("%02d", m))
+                notificationLayout.setTextViewText(R.id.tv_seconds, String.format("%02d", s))
+                
+                // Dynamic Colors
+                val blueColor = android.graphics.Color.parseColor("#448AFF")
+                val greyColor = android.graphics.Color.parseColor("#888888")
 
-            // Hours Style
-            if (h > 0) {
-                notificationLayout.setInt(R.id.tv_hours, "setBackgroundResource", R.drawable.circle_bg_active)
-                notificationLayout.setTextColor(R.id.tv_hours, blueColor)
-            } else {
-                notificationLayout.setInt(R.id.tv_hours, "setBackgroundResource", R.drawable.circle_bg)
-                notificationLayout.setTextColor(R.id.tv_hours, greyColor)
-            }
+                // Hours Style
+                if (h > 0) {
+                    notificationLayout.setInt(R.id.tv_hours, "setBackgroundResource", R.drawable.circle_bg_active)
+                    notificationLayout.setTextColor(R.id.tv_hours, blueColor)
+                } else {
+                    notificationLayout.setInt(R.id.tv_hours, "setBackgroundResource", R.drawable.circle_bg)
+                    notificationLayout.setTextColor(R.id.tv_hours, greyColor)
+                }
 
-            // Minutes Style
-            if (m > 0 || h > 0) {
-                notificationLayout.setInt(R.id.tv_minutes, "setBackgroundResource", R.drawable.circle_bg_active)
-                notificationLayout.setTextColor(R.id.tv_minutes, blueColor)
-            } else {
-                notificationLayout.setInt(R.id.tv_minutes, "setBackgroundResource", R.drawable.circle_bg)
-                notificationLayout.setTextColor(R.id.tv_minutes, greyColor)
-            }
+                // Minutes Style
+                if (m > 0 || h > 0) {
+                    notificationLayout.setInt(R.id.tv_minutes, "setBackgroundResource", R.drawable.circle_bg_active)
+                    notificationLayout.setTextColor(R.id.tv_minutes, blueColor)
+                } else {
+                    notificationLayout.setInt(R.id.tv_minutes, "setBackgroundResource", R.drawable.circle_bg)
+                    notificationLayout.setTextColor(R.id.tv_minutes, greyColor)
+                }
 
-            // Seconds Style
-            if (remainingSeconds > 0) {
-                notificationLayout.setInt(R.id.tv_seconds, "setBackgroundResource", R.drawable.circle_bg_active)
-                notificationLayout.setTextColor(R.id.tv_seconds, blueColor)
-            } else {
-                notificationLayout.setInt(R.id.tv_seconds, "setBackgroundResource", R.drawable.circle_bg)
-                notificationLayout.setTextColor(R.id.tv_seconds, greyColor)
+                // Seconds Style
+                if (remainingSeconds > 0) {
+                    notificationLayout.setInt(R.id.tv_seconds, "setBackgroundResource", R.drawable.circle_bg_active)
+                    notificationLayout.setTextColor(R.id.tv_seconds, blueColor)
+                } else {
+                    notificationLayout.setInt(R.id.tv_seconds, "setBackgroundResource", R.drawable.circle_bg)
+                    notificationLayout.setTextColor(R.id.tv_seconds, greyColor)
+                }
             }
             
             val downSpeed = (1..50).random()

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 
 class PrivacyPolicyScreen extends StatefulWidget {
   const PrivacyPolicyScreen({super.key});
@@ -9,7 +9,7 @@ class PrivacyPolicyScreen extends StatefulWidget {
 }
 
 class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
 

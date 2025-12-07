@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/firebase_service.dart';
 
 class LocationSelectionScreen extends StatefulWidget {
   const LocationSelectionScreen({super.key});
@@ -9,41 +9,48 @@ class LocationSelectionScreen extends StatefulWidget {
 }
 
 class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final FirebaseService _firebaseService = FirebaseService();
   
   int selectedTabIndex = 0; // 0 for Universal, 1 for Streaming
-  String selectedLocation = 'US - San Jose'; // Default selection
+  String selectedLocation = '';
   
-  // Data from SDUI
-  List<Map<String, dynamic>> universalLocations = [];
-  List<Map<String, dynamic>> streamingLocations = [];
-  Map<String, dynamic> _config = {};
+  // Servers grouped by country from Firebase
+  Map<String, List<Map<String, dynamic>>> _universalLocations = {};
+  Map<String, List<Map<String, dynamic>>> _streamingLocations = {};
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadServerConfig();
+    _loadServers();
   }
 
-  Future<void> _loadServerConfig() async {
+  Future<void> _loadServers() async {
+    setState(() => _isLoading = true);
+    
     try {
-      final response = await _sduiService.getScreenConfig('location_selection');
+      final servers = await _firebaseService.getServers();
+      
       if (mounted) {
-        if (response.containsKey('config')) {
-          final config = response['config'];
-          setState(() {
-            _config = config;
-            universalLocations = List<Map<String, dynamic>>.from(config['universal_locations'] ?? []);
-            streamingLocations = List<Map<String, dynamic>>.from(config['streaming_locations'] ?? []);
-            _isLoading = false;
-          });
-        } else {
-          setState(() => _isLoading = false);
+        // Group servers by country for Universal tab
+        final Map<String, List<Map<String, dynamic>>> grouped = {};
+        for (var server in servers) {
+          final country = server['country'] ?? 'Unknown';
+          if (!grouped.containsKey(country)) {
+            grouped[country] = [];
+          }
+          grouped[country]!.add(server);
         }
+        
+        setState(() {
+          _universalLocations = grouped;
+          // Streaming locations - filter servers that support streaming (or use all for now)
+          _streamingLocations = grouped;
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      debugPrint("SDUI Error: $e");
+      debugPrint('Error loading servers: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -56,25 +63,16 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
       );
     }
 
-    final dataList = selectedTabIndex == 0 ? universalLocations : streamingLocations;
+    final dataMap = selectedTabIndex == 0 ? _universalLocations : _streamingLocations;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
     final textColor = isDark ? Colors.white : Colors.black;
-    
-    // Tabs config
-    final tabs = _config['tabs'] as List<dynamic>? ?? [];
-    String tab1Label = "Universal";
-    String tab2Label = "Streaming";
-    if (tabs.isNotEmpty) {
-      tab1Label = tabs[0]['label'] ?? "Universal";
-      if (tabs.length > 1) tab2Label = tabs[1]['label'] ?? "Streaming";
-    }
 
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: backgroundColor,
-        title: Text(_config['title'] ?? 'Select Location', style: TextStyle(color: textColor)),
+        title: Text('Select Location', style: TextStyle(color: textColor)),
         centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
@@ -84,7 +82,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Tabs
+            // Tabs - Original Design
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Row(
@@ -97,7 +95,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                         });
                       },
                       icon: const Icon(Icons.grid_view),
-                      label: Text(tab1Label),
+                      label: const Text('Universal'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: selectedTabIndex == 0 ? Colors.deepPurple : (isDark ? const Color(0xFF352F44) : Colors.white),
                         foregroundColor: selectedTabIndex == 0 ? Colors.white : textColor,
@@ -118,7 +116,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                         });
                       },
                       icon: const Icon(Icons.play_circle_outline),
-                      label: Text(tab2Label),
+                      label: const Text('Streaming'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: selectedTabIndex == 1 ? Colors.deepPurple : (isDark ? const Color(0xFF352F44) : Colors.white),
                         foregroundColor: selectedTabIndex == 1 ? Colors.white : textColor,
@@ -149,29 +147,39 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
               ),
             ),
 
-            // List
+            // List grouped by country - Original Design
             Expanded(
-              child: ListView.builder(
-                padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 100),
-                itemCount: dataList.length,
-                itemBuilder: (context, index) {
-                  final country = dataList[index];
-                  return CountryTile(
-                    countryName: country['country'],
-                    flagEmoji: country['flag'],
-                    locations: List<String>.from(country['cities']),
-                    selectedLocation: selectedLocation,
-                    isDark: isDark,
-                    onLocationSelected: (loc) {
-                      setState(() {
-                        selectedLocation = loc;
-                      });
-                      // Return the selected location and flag back to previous screen
-                      Navigator.pop(context, {'location': loc, 'flag': country['flag']});
-                    },
-                  );
-                },
-              ),
+              child: dataMap.isEmpty
+                  ? const Center(child: Text('No servers available'))
+                  : ListView.builder(
+                      padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 100),
+                      itemCount: dataMap.length,
+                      itemBuilder: (context, index) {
+                        final country = dataMap.keys.elementAt(index);
+                        final servers = dataMap[country]!;
+                        final flag = servers.first['flag'] ?? '🌍';
+                        final cities = servers.map((s) => s['name'] as String).toList();
+                        
+                        return CountryTile(
+                          countryName: country,
+                          flagEmoji: flag,
+                          locations: cities,
+                          servers: servers,
+                          selectedLocation: selectedLocation,
+                          isDark: isDark,
+                          onLocationSelected: (loc, server) {
+                            setState(() {
+                              selectedLocation = loc;
+                            });
+                            Navigator.pop(context, {
+                              'location': '$country - $loc',
+                              'flag': flag,
+                              'server': server,
+                            });
+                          },
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -184,15 +192,17 @@ class CountryTile extends StatelessWidget {
   final String countryName;
   final String flagEmoji;
   final List<String> locations;
+  final List<Map<String, dynamic>> servers;
   final String selectedLocation;
   final bool isDark;
-  final Function(String) onLocationSelected;
+  final Function(String, Map<String, dynamic>) onLocationSelected;
 
   const CountryTile({
     super.key,
     required this.countryName,
     required this.flagEmoji,
     required this.locations,
+    required this.servers,
     required this.selectedLocation,
     required this.isDark,
     required this.onLocationSelected,
@@ -230,13 +240,20 @@ class CountryTile extends StatelessWidget {
             ),
           ],
         ),
-        children: locations.map((location) => _buildLocationItem(location, textColor)).toList(),
+        children: locations.asMap().entries.map((entry) {
+          final index = entry.key;
+          final location = entry.value;
+          final server = servers[index];
+          return _buildLocationItem(location, server, textColor);
+        }).toList(),
       ),
     );
   }
 
-  Widget _buildLocationItem(String location, Color textColor) {
+  Widget _buildLocationItem(String location, Map<String, dynamic> server, Color textColor) {
     bool isSelected = location == selectedLocation;
+    final latency = server['latency'] ?? 0;
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
@@ -258,14 +275,22 @@ class CountryTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-             const Icon(Icons.signal_cellular_alt, color: Colors.green, size: 20),
-             if (isSelected) ...[
-               const SizedBox(width: 8),
-               const Icon(Icons.check_circle, color: Colors.deepPurple, size: 20),
-             ]
+            Text(
+              '${latency}ms',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade500,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.signal_cellular_alt, color: Colors.green, size: 20),
+            if (isSelected) ...[
+              const SizedBox(width: 8),
+              const Icon(Icons.check_circle, color: Colors.deepPurple, size: 20),
+            ]
           ],
         ),
-        onTap: () => onLocationSelected(location),
+        onTap: () => onLocationSelected(location, server),
       ),
     );
   }

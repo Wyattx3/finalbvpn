@@ -1,6 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -12,7 +14,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   
   int _currentPage = 0;
   bool _isLoading = true;
@@ -20,6 +22,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Data fetched from Server (SDUI)
   List<Map<String, dynamic>> _pages = [];
   Map<String, String> _assets = {};
+  StreamSubscription? _sduiSubscription;
 
   @override
   void initState() {
@@ -27,27 +30,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _loadServerConfig();
   }
 
-  Future<void> _loadServerConfig() async {
-    try {
-      final response = await _sduiService.getScreenConfig('onboarding');
-      
-      if (response.containsKey('config')) {
-        final config = response['config'];
-        
+  @override
+  void dispose() {
+    _sduiSubscription?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _loadServerConfig() {
+    debugPrint('📖 Onboarding: Starting real-time SDUI listener...');
+    _sduiSubscription?.cancel();
+    _sduiSubscription = _sduiService.watchScreenConfig('onboarding').listen(
+      (response) {
+        debugPrint('📖 Onboarding: Received SDUI update!');
         if (mounted) {
-          setState(() {
-            _pages = List<Map<String, dynamic>>.from(config['pages']);
-            _assets = Map<String, String>.from(config['assets']);
-            _isLoading = false;
-          });
+          if (response.containsKey('config')) {
+            final config = response['config'];
+            setState(() {
+              _pages = List<Map<String, dynamic>>.from(config['pages'] ?? []);
+              _assets = config['assets'] != null 
+                  ? Map<String, String>.from(config['assets']) 
+                  : {};
+              _isLoading = false;
+            });
+            debugPrint('✅ Onboarding: UI updated with ${_pages.length} pages');
+          } else {
+            setState(() => _isLoading = false);
+          }
         }
-      } else {
+      },
+      onError: (e) {
+        debugPrint("❌ Onboarding SDUI Error: $e");
         if (mounted) setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      debugPrint("Error loading SDUI config: $e");
-      if (mounted) setState(() => _isLoading = false);
-    }
+      },
+    );
   }
 
   void _onNext() {
@@ -164,17 +180,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildPage(Map<String, dynamic> page) {
+    final String imageSource = page['image'] ?? '';
+    
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Full Screen Background Image
-        Image.asset(
-          page['image'],
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(color: Colors.grey[300]);
-          },
-        ),
+        // Full Screen Background Image - Support both base64 and asset paths
+        _buildImage(imageSource),
         
         // Text Overlay - Absolute Center
         Align(
@@ -210,6 +222,52 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildImage(String imageSource) {
+    if (imageSource.isEmpty) {
+      return Container(color: Colors.grey[300]);
+    }
+    
+    // Check if it's a base64 image
+    if (imageSource.startsWith('data:image')) {
+      try {
+        // Extract base64 data from data URL
+        final base64Data = imageSource.split(',').last;
+        final bytes = base64Decode(base64Data);
+        return Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            debugPrint('❌ Failed to load base64 image: $error');
+            return Container(color: Colors.grey[300]);
+          },
+        );
+      } catch (e) {
+        debugPrint('❌ Error decoding base64 image: $e');
+        return Container(color: Colors.grey[300]);
+      }
+    }
+    
+    // Check if it's a network URL
+    if (imageSource.startsWith('http')) {
+      return Image.network(
+        imageSource,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(color: Colors.grey[300]);
+        },
+      );
+    }
+    
+    // Otherwise treat as asset path
+    return Image.asset(
+      imageSource,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(color: Colors.grey[300]);
+      },
     );
   }
 }

@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../user_manager.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
+import '../services/firebase_service.dart';
 import '../utils/message_dialog.dart';
+import '../utils/network_utils.dart';
 import 'withdraw_success_screen.dart';
 import 'withdraw_history_screen.dart';
 
@@ -14,8 +17,9 @@ class RewardsScreen extends StatefulWidget {
 }
 
 class _RewardsScreenState extends State<RewardsScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   final UserManager _userManager = UserManager();
+  final FirebaseService _firebaseService = FirebaseService();
   
   bool isMMK = true;
   String? selectedPaymentMethod; 
@@ -26,6 +30,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
   List<String> _paymentMethods = ['KBZ Pay', 'Wave Pay']; // Default fallback
+  StreamSubscription? _sduiSubscription;
 
   @override
   void initState() {
@@ -33,25 +38,50 @@ class _RewardsScreenState extends State<RewardsScreen> {
     _loadServerConfig();
   }
 
-  Future<void> _loadServerConfig() async {
-    try {
-      final response = await _sduiService.getScreenConfig('rewards');
-      if (mounted) {
-        if (response.containsKey('config')) {
-          final config = response['config'];
-          setState(() {
-            _config = config;
-            _paymentMethods = List<String>.from(config['payment_methods'] ?? ['KBZ Pay', 'Wave Pay']);
-            _isLoading = false;
-          });
-        } else {
-          setState(() => _isLoading = false);
-        }
+  @override
+  void dispose() {
+    _sduiSubscription?.cancel();
+    _accountNameController.dispose();
+    _accountNumberController.dispose();
+    super.dispose();
+  }
+
+  void _loadServerConfig() {
+    debugPrint('🎁 Rewards: Starting real-time SDUI listener...');
+    
+    // Timeout fallback - if SDUI doesn't load in 3 seconds, show default UI
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && _isLoading) {
+        debugPrint('⚠️ Rewards: SDUI timeout - showing default UI');
+        setState(() => _isLoading = false);
       }
-    } catch (e) {
-      debugPrint("SDUI Error: $e");
-      if (mounted) setState(() => _isLoading = false);
-    }
+    });
+    
+    _sduiSubscription?.cancel();
+    _sduiSubscription = _sduiService.watchScreenConfig('rewards').listen(
+      (response) {
+        debugPrint('🎁 Rewards: Received SDUI update!');
+        if (mounted) {
+          if (response.containsKey('config')) {
+            final config = response['config'];
+            debugPrint('🎁 Rewards: Config received: ${config.keys}');
+            debugPrint('🎁 Rewards: min_withdraw_mmk = ${config['min_withdraw_mmk']}');
+            setState(() {
+              _config = config;
+              _paymentMethods = List<String>.from(config['payment_methods'] ?? ['KBZ Pay', 'Wave Pay']);
+              _isLoading = false;
+            });
+            debugPrint('✅ Rewards: UI updated with real-time config');
+          } else {
+            setState(() => _isLoading = false);
+          }
+        }
+      },
+      onError: (e) {
+        debugPrint("❌ Rewards SDUI Error: $e");
+        if (mounted) setState(() => _isLoading = false);
+      },
+    );
   }
 
   String _formatNumber(int number) {
@@ -77,8 +107,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
     }
 
     final labels = _config['labels'] ?? {};
-    final minWithdrawMMK = _config['min_withdraw_mmk'] ?? 20000;
-    final minWithdrawUSD = (_config['min_withdraw_usd'] ?? 20.0).toDouble();
+    final minWithdrawMMK = (_config['min_withdraw_mmk'] as num?)?.toInt() ?? 20000;
+    final minWithdrawUSD = (_config['min_withdraw_usd'] as num?)?.toDouble() ?? 20.0;
 
     // Screen Height calculation for responsive layout
     final screenHeight = MediaQuery.of(context).size.height;
@@ -214,12 +244,14 @@ class _RewardsScreenState extends State<RewardsScreen> {
                                       const SizedBox(height: 8),
                                       DropdownButtonFormField<String>(
                                         value: selectedPaymentMethod,
-                                        hint: const Text('Select Wallet'),
+                                        hint: Text('Select Wallet', style: TextStyle(color: Colors.grey.shade500)),
+                                        style: const TextStyle(color: Colors.black87, fontSize: 16),
+                                        dropdownColor: Colors.white,
                                         decoration: _inputDecoration(Icons.account_balance_wallet),
                                         items: _paymentMethods.map((String value) {
                                           return DropdownMenuItem<String>(
                                             value: value,
-                                            child: Text(value),
+                                            child: Text(value, style: const TextStyle(color: Colors.black87)),
                                           );
                                         }).toList(),
                                         onChanged: (val) {
@@ -235,6 +267,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                                     const SizedBox(height: 8),
                                     TextField(
                                       controller: _accountNameController,
+                                      style: const TextStyle(color: Colors.black87),
                                       decoration: _inputDecoration(Icons.person),
                                     ),
                                     
@@ -244,6 +277,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                                     const SizedBox(height: 8),
                                     TextField(
                                       controller: _accountNumberController,
+                                      style: const TextStyle(color: Colors.black87),
                                       keyboardType: isMMK ? TextInputType.phone : TextInputType.emailAddress,
                                       inputFormatters: isMMK ? [FilteringTextInputFormatter.digitsOnly] : [],
                                       decoration: _inputDecoration(isMMK ? Icons.phone : Icons.email),
@@ -359,8 +393,9 @@ class _RewardsScreenState extends State<RewardsScreen> {
     return InputDecoration(
       prefixIcon: Icon(icon, color: Colors.deepPurple, size: 20),
       filled: true,
-      fillColor: Colors.grey.shade500.withOpacity(0.1),
-      contentPadding: const EdgeInsets.symmetric(vertical: 14),
+      fillColor: Colors.grey.shade200,
+      hintStyle: TextStyle(color: Colors.grey.shade500),
+      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
@@ -401,12 +436,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
 
     if (isMMK) {
       if (points >= minMMK) {
-        _showConfirmationDialog(() {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
-          );
-        });
+        _showConfirmationDialog(() => _submitWithdrawal(points));
       } else {
         showMessageDialog(
           context,
@@ -417,18 +447,80 @@ class _RewardsScreenState extends State<RewardsScreen> {
       }
     } else {
       if (usdValue >= minUSD) {
-        _showConfirmationDialog(() {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
-          );
-        });
+        // Convert USD to points for submission (1 USD = 4500 MMK = 4500 points)
+        final pointsToWithdraw = (usdValue * 4500).round();
+        _showConfirmationDialog(() => _submitWithdrawal(pointsToWithdraw));
       } else {
         showMessageDialog(
           context,
           message: 'Insufficient balance. Min \$${minUSD.toStringAsFixed(2)} USD',
           type: MessageType.error,
           title: 'Insufficient Balance',
+        );
+      }
+    }
+  }
+
+  Future<void> _submitWithdrawal(int amount) async {
+    // Check network connection first
+    final hasConnection = await NetworkUtils.hasInternetConnection();
+    if (!hasConnection) {
+      if (mounted) {
+        NetworkUtils.showNetworkErrorDialog(context, onRetry: () => _submitWithdrawal(amount));
+      }
+      return;
+    }
+    
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final result = await _firebaseService.submitWithdrawal(
+        amount: amount,
+        method: isMMK ? selectedPaymentMethod! : 'PayPal',
+        accountNumber: _accountNumberController.text,
+        accountName: _accountNameController.text,
+      );
+
+      // Close loading
+      if (mounted) Navigator.pop(context);
+
+      if (result['success'] == true) {
+        debugPrint('✅ Withdrawal submitted: ${result['withdrawalId']}');
+        // Refresh balance
+        await _userManager.refreshBalance();
+        
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const WithdrawSuccessScreen()),
+          );
+        }
+      } else {
+        if (mounted) {
+          showMessageDialog(
+            context,
+            message: result['error'] ?? 'Failed to submit withdrawal',
+            type: MessageType.error,
+            title: 'Error',
+          );
+        }
+      }
+    } catch (e) {
+      // Close loading
+      if (mounted) Navigator.pop(context);
+      
+      debugPrint('❌ Withdrawal error: $e');
+      if (mounted) {
+        showMessageDialog(
+          context,
+          message: 'Something went wrong. Please try again.',
+          type: MessageType.error,
+          title: 'Error',
         );
       }
     }

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 
 class AppInfo {
   final String name;
@@ -28,7 +28,7 @@ class AppSelectionScreen extends StatefulWidget {
 }
 
 class _AppSelectionScreenState extends State<AppSelectionScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   late List<AppInfo> _selectedApps;
   late List<AppInfo> _allApps;
   String _searchQuery = '';

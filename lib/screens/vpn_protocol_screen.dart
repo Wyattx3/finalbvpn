@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 
 class VpnProtocolScreen extends StatefulWidget {
   const VpnProtocolScreen({super.key});
@@ -9,7 +9,7 @@ class VpnProtocolScreen extends StatefulWidget {
 }
 
 class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   
   // 0: Auto, 1: TCP, 2: UDP
   int _selectedOption = 0;

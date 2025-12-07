@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../user_manager.dart';
 import '../theme_notifier.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
+import '../services/firebase_service.dart';
 import '../utils/message_dialog.dart';
 import 'split_tunneling_screen.dart';
 import 'vpn_protocol_screen.dart';
@@ -22,38 +24,81 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final UserManager _userManager = UserManager();
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
+  final FirebaseService _firebaseService = FirebaseService();
   
   bool enableDebugLog = false;
   bool pushSetting = true;
   
   // SDUI Config
   Map<String, dynamic> _config = {};
-  bool _isLoading = true;
+  bool _isConfigLoading = true;
+  bool _isDeviceIdLoading = true;
+  StreamSubscription? _sduiSubscription;
+  
+  // Combined loading state - show spinner until both are loaded
+  bool get _isLoading => _isConfigLoading || _isDeviceIdLoading;
+  
+  // Device ID for support
+  String _deviceId = 'Loading...';
 
   @override
   void initState() {
     super.initState();
     _loadServerConfig();
+    _loadDeviceId();
   }
 
-  Future<void> _loadServerConfig() async {
+  @override
+  void dispose() {
+    _sduiSubscription?.cancel();
+    super.dispose();
+  }
+  
+  Future<void> _loadDeviceId() async {
     try {
-      final response = await _sduiService.getScreenConfig('settings');
+      final deviceId = await _firebaseService.getDeviceId();
+      debugPrint('📱 Settings loaded device ID: $deviceId');
       if (mounted) {
-        if (response.containsKey('config')) {
-          setState(() {
-            _config = response['config'];
-            _isLoading = false;
-          });
-        } else {
-          setState(() => _isLoading = false);
-        }
+        setState(() {
+          _deviceId = deviceId;
+          _isDeviceIdLoading = false;
+        });
       }
     } catch (e) {
-      debugPrint("SDUI Error: $e");
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint('❌ Error loading device ID: $e');
+      if (mounted) {
+        setState(() {
+          _deviceId = 'Error loading ID';
+          _isDeviceIdLoading = false;
+        });
+      }
     }
+  }
+
+  void _loadServerConfig() {
+    debugPrint('⚙️ Settings: Starting real-time SDUI listener...');
+    _sduiSubscription?.cancel();
+    _sduiSubscription = _sduiService.watchScreenConfig('settings').listen(
+      (response) {
+        debugPrint('⚙️ Settings: Received SDUI update!');
+        if (mounted) {
+          if (response.containsKey('config')) {
+            setState(() {
+              _config = response['config'];
+              _isConfigLoading = false;
+            });
+            debugPrint('✅ Settings: UI updated with real-time config');
+          } else {
+            setState(() => _isConfigLoading = false);
+          }
+        }
+      },
+      onError: (e) {
+        debugPrint("❌ Settings SDUI Error: $e");
+        if (mounted) setState(() => _isConfigLoading = false);
+      },
+    );
   }
   
   void _showNotImplemented(String feature) {
@@ -66,7 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showShareDialog() {
-    final shareText = _config['share_text'] ?? 'Check out VPN App - Secure, Fast & Private VPN!\n\nDownload now: https://play.google.com/store/apps/details?id=com.vpnapp';
+    final shareText = _config['share_text'] ?? 'Check out Suf Fhoke VPN - Secure, Fast & Private VPN!\n\nDownload now: https://play.google.com/store/apps/details?id=com.example.vpn_app';
     
     showModalBottomSheet(
       context: context,
@@ -82,7 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Share VPN App',
+                  'Share Suf Fhoke VPN',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 20),
@@ -365,7 +410,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     }
 
-    final accountId = _config['account_id'] ?? '19a070***04eef7';
+    // Use actual device ID from Firebase, not config
+    final accountId = _deviceId;
     final version = _config['version'] ?? 'V1.0.8 (latest)';
 
     return ValueListenableBuilder<ThemeMode>(
@@ -638,6 +684,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _showShareDialog();
                   },
                 ),
+                // Device ID for Support
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: _deviceId));
+                    showMessageDialog(
+                      context,
+                      message: 'Device ID copied!\n\n$_deviceId',
+                      type: MessageType.success,
+                      title: 'Copied',
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.fingerprint, color: Colors.grey),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Device ID',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          constraints: const BoxConstraints(maxWidth: 120),
+                          child: Text(
+                            _deviceId.length > 10 
+                              ? '${_deviceId.substring(0, 6)}***${_deviceId.substring(_deviceId.length - 5)}'
+                              : _deviceId,
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.copy, size: 14, color: Colors.grey),
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
                 InkWell(
                   onTap: () {
                     Navigator.push(

@@ -1,11 +1,47 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/banned_screen.dart';
 import 'theme_notifier.dart';
+import 'services/firebase_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  print('=== APP STARTING ===');
+  
+  // Initialize Firebase with timeout
+  try {
+    print('=== FIREBASE INIT START ===');
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    print('=== FIREBASE INIT OK ===');
+    
+    final firebaseService = FirebaseService();
+    print('=== GETTING DEVICE ID ===');
+    final deviceId = await firebaseService.getDeviceId();
+    print('=== DEVICE ID: $deviceId ===');
+    
+    print('=== REGISTERING DEVICE ===');
+    // Add timeout to prevent blocking if network is unavailable
+    final success = await firebaseService.initialize().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        print('=== REGISTER TIMEOUT - CONTINUING WITHOUT REGISTRATION ===');
+        return false;
+      },
+    );
+    print('=== REGISTER RESULT: $success ===');
+  } catch (e, stack) {
+    print('=== FIREBASE ERROR: $e ===');
+    print('=== STACK: $stack ===');
+  }
+  
+  print('=== STARTING APP UI ===');
   
   // Enable edge-to-edge but with colored system bars
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -13,7 +49,7 @@ void main() {
   runApp(const VPNApp());
 }
 
-class VPNApp extends StatelessWidget {
+class VPNApp extends StatefulWidget {
   const VPNApp({super.key});
 
   // Light Theme Colors - Soft & Clean
@@ -31,29 +67,139 @@ class VPNApp extends StatelessWidget {
   static const Color darkCardColor = Color(0xFF352F44);
 
   @override
+  State<VPNApp> createState() => _VPNAppState();
+}
+
+class _VPNAppState extends State<VPNApp> with WidgetsBindingObserver {
+  final FirebaseService _firebaseService = FirebaseService();
+  Timer? _heartbeatTimer;
+  
+  // Ban status
+  final ValueNotifier<bool> _isBanned = ValueNotifier(false);
+  StreamSubscription<bool>? _banSubscription;
+  Map<String, dynamic>? _banScreenConfig;
+  bool _wasUnbanned = false; // Track if recovered from ban
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startHeartbeat();
+    _startBanListener();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _heartbeatTimer?.cancel();
+    _banSubscription?.cancel();
+    _isBanned.dispose();
+    super.dispose();
+  }
+
+  void _startHeartbeat() {
+    // Send heartbeat every 2 minutes to keep device "online"
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      _firebaseService.sendHeartbeat();
+    });
+    // Also send initial heartbeat
+    _firebaseService.sendHeartbeat();
+    debugPrint('💓 Heartbeat started (every 2 minutes)');
+  }
+
+  void _startBanListener() {
+    debugPrint('🚫 Starting ban status listener...');
+    _banSubscription = _firebaseService.listenToBanStatus().listen((isBanned) async {
+      debugPrint('🚫 Ban status update: $isBanned');
+      
+      if (isBanned && !_isBanned.value) {
+        // Device just got banned - load SDUI config and stop heartbeat
+        _banScreenConfig = await _firebaseService.getBanScreenConfig();
+        _heartbeatTimer?.cancel();
+        _wasUnbanned = false;
+        debugPrint('🚫 BANNED! Showing ban screen...');
+      } else if (!isBanned && _isBanned.value) {
+        // Device just got unbanned - restart heartbeat and set online
+        debugPrint('✅ UNBANNED! Restarting normal operations...');
+        _wasUnbanned = true;
+        await _firebaseService.updateDeviceStatus('online');
+        _startHeartbeat();
+      }
+      
+      _isBanned.value = isBanned;
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // Don't update status if device is banned
+    if (_isBanned.value) {
+      debugPrint('📱 App lifecycle changed but device is BANNED - ignoring');
+      return;
+    }
+    
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // App came to foreground
+        debugPrint('📱 App RESUMED - setting online');
+        _firebaseService.updateDeviceStatus('online');
+        _startHeartbeat();
+        break;
+      case AppLifecycleState.paused:
+        // App went to background
+        debugPrint('📱 App PAUSED - heartbeat stopped');
+        _heartbeatTimer?.cancel();
+        // Don't set offline immediately - let the timeout handle it
+        break;
+      case AppLifecycleState.detached:
+        // App is about to be killed
+        debugPrint('📱 App DETACHED');
+        _heartbeatTimer?.cancel();
+        break;
+      default:
+        break;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: themeNotifier,
-      builder: (context, themeMode, child) {
-        return MaterialApp(
-          title: 'VPN App',
-          debugShowCheckedModeBanner: false,
-          themeMode: themeMode,
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isBanned,
+      builder: (context, isBanned, _) {
+        // If banned, show full-screen ban screen
+        if (isBanned) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: BannedScreen(config: _banScreenConfig),
+          );
+        }
+        
+        // Normal app flow
+        return ValueListenableBuilder<ThemeMode>(
+          valueListenable: themeNotifier,
+          builder: (context, themeMode, child) {
+            return MaterialApp(
+              title: 'Suf Fhoke VPN',
+              debugShowCheckedModeBanner: false,
+              themeMode: themeMode,
           theme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.light(
-              primary: lightPrimaryPurple,
-              secondary: lightSecondaryPurple,
-              surface: lightSurface,
+              primary: VPNApp.lightPrimaryPurple,
+              secondary: VPNApp.lightSecondaryPurple,
+              surface: VPNApp.lightSurface,
               onPrimary: Colors.white,
               onSecondary: Colors.white,
               onSurface: const Color(0xFF2D2D2D),
             ),
-            scaffoldBackgroundColor: lightBackground,
-            cardColor: lightCardColor,
+            scaffoldBackgroundColor: VPNApp.lightBackground,
+            cardColor: VPNApp.lightCardColor,
             dividerColor: Colors.grey.shade200,
             appBarTheme: AppBarTheme(
-              backgroundColor: lightBackground,
+              backgroundColor: VPNApp.lightBackground,
               elevation: 0,
               centerTitle: true,
               titleTextStyle: TextStyle(
@@ -65,20 +211,20 @@ class VPNApp extends StatelessWidget {
             ),
             elevatedButtonTheme: ElevatedButtonThemeData(
               style: ElevatedButton.styleFrom(
-                backgroundColor: lightPrimaryPurple,
+                backgroundColor: VPNApp.lightPrimaryPurple,
                 foregroundColor: Colors.white,
               ),
             ),
             switchTheme: SwitchThemeData(
               thumbColor: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.selected)) {
-                  return lightPrimaryPurple;
+                  return VPNApp.lightPrimaryPurple;
                 }
                 return Colors.grey.shade400;
               }),
               trackColor: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.selected)) {
-                  return lightSecondaryPurple.withOpacity(0.5);
+                  return VPNApp.lightSecondaryPurple.withOpacity(0.5);
                 }
                 return Colors.grey.shade300;
               }),
@@ -87,18 +233,18 @@ class VPNApp extends StatelessWidget {
           darkTheme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.dark(
-              primary: darkPrimaryPurple,
-              secondary: darkSecondaryPurple,
-              surface: darkSurface,
+              primary: VPNApp.darkPrimaryPurple,
+              secondary: VPNApp.darkSecondaryPurple,
+              surface: VPNApp.darkSurface,
               onPrimary: Colors.white,
               onSecondary: Colors.white,
               onSurface: const Color(0xFFE8E8E8),
             ),
-            scaffoldBackgroundColor: darkBackground,
-            cardColor: darkCardColor,
+            scaffoldBackgroundColor: VPNApp.darkBackground,
+            cardColor: VPNApp.darkCardColor,
             dividerColor: Colors.purple.shade900,
             appBarTheme: AppBarTheme(
-              backgroundColor: darkBackground,
+              backgroundColor: VPNApp.darkBackground,
               elevation: 0,
               centerTitle: true,
               titleTextStyle: const TextStyle(
@@ -110,20 +256,20 @@ class VPNApp extends StatelessWidget {
             ),
             elevatedButtonTheme: ElevatedButtonThemeData(
               style: ElevatedButton.styleFrom(
-                backgroundColor: darkPrimaryPurple,
+                backgroundColor: VPNApp.darkPrimaryPurple,
                 foregroundColor: Colors.white,
               ),
             ),
             switchTheme: SwitchThemeData(
               thumbColor: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.selected)) {
-                  return darkPrimaryPurple;
+                  return VPNApp.darkPrimaryPurple;
                 }
                 return Colors.grey.shade600;
               }),
               trackColor: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.selected)) {
-                  return darkSecondaryPurple.withOpacity(0.5);
+                  return VPNApp.darkSecondaryPurple.withOpacity(0.5);
                 }
                 return Colors.grey.shade800;
               }),
@@ -135,20 +281,23 @@ class VPNApp extends StatelessWidget {
             return AnnotatedRegion<SystemUiOverlayStyle>(
               value: SystemUiOverlayStyle(
                 // Status Bar - match background color
-                statusBarColor: isDark ? darkBackground : lightBackground,
+                statusBarColor: isDark ? VPNApp.darkBackground : VPNApp.lightBackground,
                 statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
                 statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
                 
                 // Navigation Bar - match background color
-                systemNavigationBarColor: isDark ? darkBackground : lightBackground,
-                systemNavigationBarDividerColor: isDark ? darkBackground : lightBackground,
+                systemNavigationBarColor: isDark ? VPNApp.darkBackground : VPNApp.lightBackground,
+                systemNavigationBarDividerColor: isDark ? VPNApp.darkBackground : VPNApp.lightBackground,
                 systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
               ),
               child: child!,
             );
           },
-          home: const SplashScreen(),
-        );
+            // If just unbanned, go directly to HomeScreen; otherwise show SplashScreen
+            home: _wasUnbanned ? const HomeScreen() : const SplashScreen(),
+          );
+        },
+      );
       },
     );
   }

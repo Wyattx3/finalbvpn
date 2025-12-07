@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 
 class WithdrawSuccessScreen extends StatefulWidget {
   const WithdrawSuccessScreen({super.key});
@@ -9,7 +9,7 @@ class WithdrawSuccessScreen extends StatefulWidget {
 }
 
 class _WithdrawSuccessScreenState extends State<WithdrawSuccessScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
 

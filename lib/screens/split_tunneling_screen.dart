@@ -4,7 +4,7 @@ import 'package:installed_apps/installed_apps.dart';
 import 'package:installed_apps/app_info.dart' as device;
 import 'app_selection_screen.dart' as my_app;
 import '../user_manager.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 
 class SplitTunnelingScreen extends StatefulWidget {
   const SplitTunnelingScreen({super.key});
@@ -15,7 +15,7 @@ class SplitTunnelingScreen extends StatefulWidget {
 
 class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   final UserManager _userManager = UserManager();
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   late int _selectedOption;
 
   List<my_app.AppInfo> _selectedAppsForUsesVPN = [];

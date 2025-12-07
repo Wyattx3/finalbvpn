@@ -19,31 +19,33 @@ export default function LoginPage() {
     }
   }, [router]);
 
-  // Helper to parse User Agent
+  // Helper to parse User Agent - IMPROVED detection
   const getBrowserInfo = () => {
     const ua = navigator.userAgent;
     let browser = "Unknown Browser";
     let os = "Unknown OS";
 
-    // Detect Browser
-    if (ua.indexOf("Chrome") > -1) {
+    // Detect Browser (order matters!)
+    if (ua.indexOf("Edg") > -1) {
+      browser = "Edge";
+    } else if (ua.indexOf("OPR") > -1 || ua.indexOf("Opera") > -1) {
+      browser = "Opera";
+    } else if (ua.indexOf("Firefox") > -1) {
+      browser = "Firefox";
+    } else if (ua.indexOf("Chrome") > -1) {
       browser = "Chrome";
     } else if (ua.indexOf("Safari") > -1) {
       browser = "Safari";
-    } else if (ua.indexOf("Firefox") > -1) {
-      browser = "Firefox";
-    } else if (ua.indexOf("Edge") > -1) {
-      browser = "Edge";
     } else if (ua.indexOf("MSIE") > -1 || ua.indexOf("Trident/") > -1) {
       browser = "Internet Explorer";
     }
 
     // Detect OS
-    if (ua.indexOf("Win") > -1) os = "Windows";
+    if (ua.indexOf("Android") > -1) os = "Android";
+    else if (ua.indexOf("iPhone") > -1 || ua.indexOf("iPad") > -1) os = "iOS";
+    else if (ua.indexOf("Win") > -1) os = "Windows";
     else if (ua.indexOf("Mac") > -1) os = "MacOS";
     else if (ua.indexOf("Linux") > -1) os = "Linux";
-    else if (ua.indexOf("Android") > -1) os = "Android";
-    else if (ua.indexOf("like Mac") > -1) os = "iOS";
 
     return `${os} • ${browser}`;
   };
@@ -54,26 +56,68 @@ export default function LoginPage() {
     setError("");
 
     // Mock Authentication
-    setTimeout(() => {
+    setTimeout(async () => {
       if (email === "admin@bvpn.com" && password === "admin123") {
         // Success
         document.cookie = "auth_token=mock_token; path=/";
         
-        // Save Login History
+        // Save Login History to Firebase
         try {
-          const currentHistory = JSON.parse(localStorage.getItem('login_history') || '[]');
           const browserInfo = getBrowserInfo();
+          const ua = navigator.userAgent;
           
-          const newEntry = {
-            id: Date.now(),
-            timestamp: new Date().toLocaleString(),
-            device: browserInfo,
-            ip: "192.168.1.1", // Mock IP
-            location: "Yangon, Myanmar", // Mock Location
-          };
+          // Detect Browser (order matters!)
+          let browser = "Unknown";
+          if (ua.indexOf("Edg") > -1) browser = "Edge";
+          else if (ua.indexOf("OPR") > -1 || ua.indexOf("Opera") > -1) browser = "Opera";
+          else if (ua.indexOf("Firefox") > -1) browser = "Firefox";
+          else if (ua.indexOf("Chrome") > -1) browser = "Chrome";
+          else if (ua.indexOf("Safari") > -1) browser = "Safari";
+          else if (ua.indexOf("MSIE") > -1 || ua.indexOf("Trident/") > -1) browser = "IE";
           
-          const updatedHistory = [newEntry, ...currentHistory].slice(0, 1000); // Limit to 1000
-          localStorage.setItem('login_history', JSON.stringify(updatedHistory));
+          // Detect OS
+          let os = "Unknown";
+          if (ua.indexOf("Android") > -1) os = "Android";
+          else if (ua.indexOf("iPhone") > -1 || ua.indexOf("iPad") > -1) os = "iOS";
+          else if (ua.indexOf("Win") > -1) os = "Windows";
+          else if (ua.indexOf("Mac") > -1) os = "MacOS";
+          else if (ua.indexOf("Linux") > -1) os = "Linux";
+          
+          // Get IP and location (using free API)
+          let ip = "Unknown";
+          let location = "Unknown";
+          try {
+            const ipResponse = await fetch('https://ipapi.co/json/');
+            if (ipResponse.ok) {
+              const ipData = await ipResponse.json();
+              ip = ipData.ip || "Unknown";
+              location = `${ipData.city || ''}, ${ipData.country_name || ''}`.replace(/^, |, $/g, '') || "Unknown";
+            }
+          } catch (ipError) {
+            console.log("Could not get IP info");
+          }
+          
+          // Generate unique session ID
+          const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          
+          // Save session ID to localStorage for tracking
+          localStorage.setItem('admin_session_id', sessionId);
+          
+          // Save to Firebase via API
+          await fetch('/api/admin-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              device: browserInfo,
+              browser,
+              os,
+              ip,
+              location,
+              sessionId,
+              isActive: true,
+            }),
+          });
         } catch (error) {
           console.error("Failed to save login history", error);
         }

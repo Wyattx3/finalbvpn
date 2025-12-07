@@ -1,21 +1,32 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'services/firebase_service.dart';
 
 class UserManager {
   static final UserManager _instance = UserManager._internal();
   factory UserManager() => _instance;
-  UserManager._internal();
+  UserManager._internal() {
+    _initFirebaseSync();
+  }
+
+  final FirebaseService _firebase = FirebaseService();
 
   // Balance (Points) - 1 Ad = 30 Points (30 Points = 30 MMK)
-  // Test Balance: 100,000 Points
-  final ValueNotifier<int> balancePoints = ValueNotifier(100000);
+  final ValueNotifier<int> balancePoints = ValueNotifier(0);
   
-  // Ad Limits
-  int _adWatchCount = 0;
-  DateTime? _nextAdAvailableTime;
+  // Cooldown tracking (synced from Firebase)
+  final ValueNotifier<int> cooldownRemaining = ValueNotifier(0);
+  final ValueNotifier<bool> isInCooldown = ValueNotifier(false);
   
-  // VPN Remaining Time (Seconds)
+  // Today's earnings tracking (synced with Firebase)
+  final ValueNotifier<int> todayEarnings = ValueNotifier(0);
+  final ValueNotifier<int> adsWatchedToday = ValueNotifier(0);
+  StreamSubscription? _dailyStatsSubscription;
+  
+  // VPN Remaining Time (Seconds) - Synced with Firebase
   final ValueNotifier<int> remainingSeconds = ValueNotifier(0);
+  StreamSubscription<int>? _vpnTimeSubscription;
+  Timer? _vpnSyncTimer; // Periodic sync timer
 
   // Split Tunneling Mode: 0 = Disable, 1 = Uses VPN, 2 = Bypass VPN
   final ValueNotifier<int> splitTunnelingMode = ValueNotifier(0);
@@ -24,76 +35,191 @@ class UserManager {
   final ValueNotifier<bool> displayLatency = ValueNotifier(true);
   
   Timer? _timer;
+  StreamSubscription? _balanceSubscription;
   VoidCallback? onTimeExpired; // Callback to disconnect VPN
 
-  // Add Reward & Time
-  // Returns true if successful, false if limit reached
-  bool watchAdReward() {
-    if (!canWatchAd()) return false;
-
-    balancePoints.value += 30; // Earn 30 Points
-    remainingSeconds.value += 7200; // Add 2 Hours (7200 seconds)
+  // Initialize Firebase balance sync
+  void _initFirebaseSync() {
+    // Listen to real-time balance updates
+    _balanceSubscription = _firebase.listenToBalance().listen((balance) {
+      balancePoints.value = balance;
+    });
     
-    _adWatchCount++;
-    if (_adWatchCount >= 10) {
-      // 10 minutes cooldown after 10 ads
-      _nextAdAvailableTime = DateTime.now().add(const Duration(minutes: 10));
-      _adWatchCount = 0; // Reset count for next cycle
-    }
-    return true;
+    // Listen to daily stats updates from Firebase
+    _dailyStatsSubscription = _firebase.listenToDailyStats().listen((stats) {
+      todayEarnings.value = stats['todayEarnings'] ?? 0;
+      adsWatchedToday.value = stats['adsWatchedToday'] ?? 0;
+      debugPrint('📊 Daily stats synced: ${todayEarnings.value} earned, ${adsWatchedToday.value} ads');
+    });
+    
+    // Listen to VPN time updates from Firebase
+    _vpnTimeSubscription = _firebase.listenToVpnTime().listen(
+      (seconds) {
+        final currentSeconds = remainingSeconds.value;
+        final difference = (seconds - currentSeconds).abs();
+        
+        // Update in these cases:
+        // 1. Timer is not running
+        // 2. Significant difference (admin made changes) - more than 60 seconds
+        if (_timer == null || !_timer!.isActive || difference > 60) {
+          remainingSeconds.value = seconds;
+          debugPrint('⏱️ VPN time from Firebase: $seconds seconds (diff: $difference)');
+          if (difference > 60) {
+            debugPrint('⏱️ Significant change detected - admin adjustment applied!');
+          }
+        }
+      },
+      onError: (e) {
+        debugPrint('❌ Error listening to VPN time: $e');
+      },
+    );
+    
+    // Initial balance fetch
+    _fetchBalance();
+    _fetchVpnTime();
   }
 
-  // Add balance only (for earn money screen)
-  bool addBalance(int amount) {
-    if (!canWatchAd()) return false;
-    
-    balancePoints.value += amount;
-    
-    _adWatchCount++;
-    if (_adWatchCount >= 10) {
-      _nextAdAvailableTime = DateTime.now().add(const Duration(minutes: 10));
-      _adWatchCount = 0;
+  Future<void> _fetchBalance() async {
+    try {
+      final balance = await _firebase.getBalance();
+      balancePoints.value = balance;
+      print('💰 Balance fetched: $balance points');
+    } catch (e) {
+      print('❌ Error fetching balance: $e');
     }
-    return true;
   }
 
-  // Check if user can watch ad
-  bool canWatchAd() {
-    if (_nextAdAvailableTime != null) {
-      if (DateTime.now().isBefore(_nextAdAvailableTime!)) {
-        return false; // Still in cooldown
+  Future<void> _fetchVpnTime() async {
+    try {
+      final seconds = await _firebase.getVpnRemainingSeconds();
+      remainingSeconds.value = seconds;
+      print('⏱️ VPN time fetched: $seconds seconds');
+    } catch (e) {
+      print('❌ Error fetching VPN time: $e');
+    }
+  }
+
+  // Add Reward & Time - VPN page ads give both points AND VPN time
+  Future<bool> watchAdReward() async {
+    try {
+      debugPrint('💰 VPN Page: Adding reward with VPN time bonus');
+      final result = await _firebase.addAdReward(addVpnTime: true);
+      if (result['success'] == true) {
+        // VPN time is now stored in Firebase - update local value from server response
+        final newVpnSeconds = (result['vpnRemainingSeconds'] as int?) ?? remainingSeconds.value;
+        remainingSeconds.value = newVpnSeconds;
+        debugPrint('⏱️ VPN time updated from server: $newVpnSeconds seconds');
+        
+        // Update cooldown from server response (use SDUI config value)
+        if (result['cooldownStarted'] == true) {
+          isInCooldown.value = true;
+          cooldownRemaining.value = (result['cooldownDuration'] as num?)?.toInt() ?? 600; // From SDUI config
+          debugPrint('⏰ Cooldown started: ${cooldownRemaining.value} seconds');
+        }
+        return true;
       } else {
-        _nextAdAvailableTime = null; // Cooldown over
+        // Handle server errors
+        if (result['error'] == 'cooldown') {
+          isInCooldown.value = true;
+          cooldownRemaining.value = result['cooldownRemaining'] ?? 0;
+        }
       }
+    } catch (e) {
+      debugPrint('Error watching ad reward: $e');
     }
-    return true;
+    return false;
   }
 
-  // Get remaining cooldown time
-  Duration get cooldownTime {
-    if (_nextAdAvailableTime == null) return Duration.zero;
-    final diff = _nextAdAvailableTime!.difference(DateTime.now());
-    return diff.isNegative ? Duration.zero : diff;
+  // Add balance only (for earn money screen) - ALL validation server-side
+  /// Add balance for watching ad
+  /// [amount] - Reward amount (from SDUI config)
+  /// [addVpnTime] - Whether to add VPN time bonus (only true for VPN page ads when no time left)
+  Future<Map<String, dynamic>> addBalance(int amount, {bool addVpnTime = false}) async {
+    try {
+      debugPrint('💰 addBalance called - amount: $amount, addVpnTime: $addVpnTime');
+      final result = await _firebase.addAdReward(rewardAmount: amount, addVpnTime: addVpnTime);
+      
+      if (result['success'] == true) {
+        // Cooldown started? (use SDUI config value)
+        if (result['cooldownStarted'] == true) {
+          isInCooldown.value = true;
+          cooldownRemaining.value = (result['cooldownDuration'] as num?)?.toInt() ?? 600; // From SDUI config
+          debugPrint('⏰ Cooldown started: ${cooldownRemaining.value} seconds');
+        }
+        return {'success': true};
+      } else {
+        // Handle server-side errors
+        if (result['error'] == 'cooldown') {
+          isInCooldown.value = true;
+          cooldownRemaining.value = result['cooldownRemaining'] ?? 0;
+        }
+        return result;
+      }
+    } catch (e) {
+      debugPrint('Error adding balance: $e');
+      return {'success': false, 'error': e.toString()};
+    }
   }
 
-  // Start Countdown
+  // Check if user can watch ad - SERVER-SIDE validation
+  Future<Map<String, dynamic>> canWatchAdAsync() async {
+    final result = await _firebase.canWatchAd();
+    
+    if (result['canWatch'] == false && result['reason'] == 'cooldown') {
+      isInCooldown.value = true;
+      cooldownRemaining.value = result['cooldownRemaining'] ?? 0;
+    } else {
+      isInCooldown.value = false;
+      cooldownRemaining.value = 0;
+    }
+    
+    return result;
+  }
+
+  // Get remaining cooldown time (synced from Firebase)
+  Duration get cooldownTime => Duration(seconds: cooldownRemaining.value);
+
+  // Start Countdown - Syncs to Firebase every 30 seconds
   void startTimer() {
     _timer?.cancel();
+    _vpnSyncTimer?.cancel();
+    
+    // Local countdown timer (every second)
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (remainingSeconds.value > 0) {
         remainingSeconds.value--;
       } else {
         _timer?.cancel();
+        _vpnSyncTimer?.cancel();
+        // Sync final time to Firebase
+        _firebase.syncVpnTime(0);
         if (onTimeExpired != null) {
           onTimeExpired!(); // Auto disconnect
         }
       }
     });
+    
+    // Sync to Firebase every 30 seconds to reduce write operations
+    _vpnSyncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (remainingSeconds.value > 0) {
+        _firebase.syncVpnTime(remainingSeconds.value);
+      }
+    });
+    
+    debugPrint('⏱️ Timer started with Firebase sync');
   }
 
-  // Stop Countdown
+  // Stop Countdown and sync final time to Firebase
   void stopTimer() {
     _timer?.cancel();
+    _vpnSyncTimer?.cancel();
+    
+    // Sync current time to Firebase when stopping
+    if (remainingSeconds.value > 0) {
+      _firebase.syncVpnTime(remainingSeconds.value);
+    }
+    
+    debugPrint('⏱️ Timer stopped, synced ${remainingSeconds.value} seconds to Firebase');
   }
 
   // Helper to format time
@@ -105,6 +231,25 @@ class UserManager {
   }
 
   // Helper to convert to USD (1 Point = 1 MMK, 1 USD = 4500 MMK)
-  double get balanceUSD => balancePoints.value / 4500; 
+  double get balanceUSD => balancePoints.value / 4500;
+  
+  // Cleanup
+  void dispose() {
+    _timer?.cancel();
+    _vpnSyncTimer?.cancel();
+    _balanceSubscription?.cancel();
+    _dailyStatsSubscription?.cancel();
+    _vpnTimeSubscription?.cancel();
+  }
+  
+  // Refresh balance from server
+  Future<void> refreshBalance() async {
+    await _fetchBalance();
+  }
+  
+  // Refresh VPN time from server
+  Future<void> refreshVpnTime() async {
+    await _fetchVpnTime();
+  }
 }
 

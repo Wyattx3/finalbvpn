@@ -1,22 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Save, Lock, User, Bell, Shield, Moon, Sun, Laptop } from "lucide-react";
+import { Save, Lock, User, Bell, Shield, Moon, Sun, Laptop, RefreshCw, Monitor, Globe, Zap, Users } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
-
-interface LoginHistoryEntry {
-  id: number;
-  timestamp: string;
-  device: string;
-  ip: string;
-  location: string;
-  isActive?: boolean; // Added isActive flag
-}
+import { useAdminLoginActivity, useSessionHeartbeat } from "@/hooks/useAdminLoginActivity";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
   const { theme, setTheme } = useTheme();
-  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[]>([]);
+  
+  // 🔴 REAL-TIME: Use Firebase real-time ADMIN login activity
+  const { activities: loginActivities, isLoading: loginLoading, activeCount } = useAdminLoginActivity(100);
+  
+  // Keep session alive with heartbeat
+  useSessionHeartbeat();
 
   // Load settings from localStorage or default
   const [preferences, setPreferences] = useState({
@@ -26,21 +23,6 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    // Load History
-    const storedHistory = localStorage.getItem('login_history');
-    if (storedHistory) {
-      try {
-        let history = JSON.parse(storedHistory);
-        // Mark the most recent entry as active for simulation
-        if (history.length > 0) {
-          history[0].isActive = true;
-        }
-        setLoginHistory(history);
-      } catch (e) {
-        console.error("Failed to parse login history", e);
-      }
-    }
-
     // Load Preferences
     const storedPrefs = localStorage.getItem('admin_preferences');
     if (storedPrefs) {
@@ -162,34 +144,102 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="mt-8">
+            {/* Active Sessions Count */}
+            <div className="mt-6 mb-4 flex items-center justify-between rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-900/20">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-green-100 p-2 text-green-600 dark:bg-green-900/50 dark:text-green-400">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-medium text-green-800 dark:text-green-300">Active Sessions</p>
+                  <p className="text-sm text-green-600 dark:text-green-400">Currently using the dashboard</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-green-500"></span>
+                </span>
+                <span className="text-2xl font-bold text-green-700 dark:text-green-300">{activeCount}</span>
+              </div>
+            </div>
+
+            <div className="mt-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">Recent Login Activity</h3>
-                <span className="text-xs text-gray-400">Last 1000 records</span>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold uppercase text-gray-500 dark:text-gray-400">Admin Dashboard Login History</h3>
+                  {/* Real-time indicator */}
+                  <div className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                    </span>
+                    <Zap className="h-3 w-3" />
+                    Live
+                  </div>
+                </div>
+                <span className="text-xs text-gray-400">Last 100 records</span>
               </div>
               <div className="rounded-lg border border-gray-100 dark:border-gray-700 max-h-[400px] overflow-y-auto">
-                {loginHistory.length > 0 ? (
-                  loginHistory.map((entry) => (
-                    <div key={entry.id} className="flex items-center justify-between border-b border-gray-100 p-3 last:border-0 dark:border-gray-700">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate" title={entry.device}>
-                            {entry.device}
-                          </p>
-                          {entry.isActive && (
-                            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                              Active Now
-                            </span>
-                          )}
+                {loginLoading ? (
+                  <div className="flex items-center justify-center p-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
+                  </div>
+                ) : loginActivities.length > 0 ? (
+                  loginActivities.map((activity) => {
+                    const currentSessionId = typeof window !== 'undefined' ? localStorage.getItem('admin_session_id') : null;
+                    const isCurrentSession = activity.sessionId === currentSessionId;
+                    
+                    return (
+                      <div key={activity.id} className={`flex items-center justify-between border-b border-gray-100 p-3 last:border-0 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${activity.isActive ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`flex h-9 w-9 items-center justify-center rounded-full ${activity.isActive ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
+                            <Monitor className="h-4 w-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {activity.device}
+                              </p>
+                              {activity.isActive && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                  <span className="relative flex h-1.5 w-1.5">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                                  </span>
+                                  Active
+                                </span>
+                              )}
+                              {isCurrentSession && (
+                                <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                                  This Device
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                              <Globe className="h-3 w-3" />
+                              <span>{activity.location}</span>
+                              <span>•</span>
+                              <span className="font-mono">{activity.ip}</span>
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{entry.location} • {entry.ip}</p>
+                        <div className="text-right ml-4">
+                          <div className="text-xs font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            {activity.timestamp.toLocaleTimeString()}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            {activity.timestamp.toLocaleDateString()}
+                          </div>
+                        </div>
                       </div>
-                      <span className="ml-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{entry.timestamp}</span>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
-                   <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                     No login history recorded yet.
+                   <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                     <Monitor className="mx-auto mb-2 h-8 w-8 opacity-30" />
+                     <p>No admin login activity recorded yet.</p>
+                     <p className="text-xs mt-1">Dashboard logins will appear here in real-time.</p>
                    </div>
                 )}
               </div>

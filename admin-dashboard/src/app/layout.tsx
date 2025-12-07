@@ -4,8 +4,15 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import SessionTimeoutHandler from "@/components/SessionTimeoutHandler";
+import { useSessionHeartbeat } from "@/hooks/useAdminLoginActivity";
 import { usePathname } from "next/navigation";
 import "./globals.css";
+
+// Component to handle heartbeat on dashboard routes
+function HeartbeatHandler() {
+  useSessionHeartbeat();
+  return null;
+}
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -66,6 +73,7 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="system" storageKey="bvpn-admin-theme">
           <div className="flex min-h-screen">
             <SessionTimeoutHandler />
+            {showSidebar && <HeartbeatHandler />}
             {showSidebar && <Sidebar />}
             <main className={`flex-1 overflow-auto ${showSidebar ? 'ml-64 p-8' : ''}`}>
               {children}

@@ -1,20 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Filter, Ban, Coins, CheckCircle, Smartphone, Globe, Activity, X, History, PlayCircle, Wallet, Download, Calendar, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Search, Filter, Ban, Coins, CheckCircle, Smartphone, Globe, Activity, X, History, PlayCircle, Wallet, Download, Calendar, AlertTriangle, RefreshCw, Zap, Clock, Timer } from "lucide-react";
+import { useRealtimeDevices, RealtimeDevice } from "@/hooks/useRealtimeDevices";
 
-interface UserDevice {
-  id: string; // Device UUID
-  deviceModel: string; // e.g., "Samsung S23"
-  ipAddress: string;
-  country: string;
-  flag: string;
-  balance: number; // Earnings/Points
-  status: "online" | "offline" | "banned";
-  dataUsage: string; // e.g., "1.2 GB"
-  lastSeen: string;
-  version: string; // App Version
-  logs?: ActivityLog[]; // Persistent logs for this user
+interface UserDevice extends RealtimeDevice {
+  logs?: ActivityLog[];
 }
 
 interface ActivityLog {
@@ -22,73 +13,43 @@ interface ActivityLog {
   type: 'ad_reward' | 'withdrawal' | 'admin_adjustment';
   description: string;
   amount: number;
-  timestamp: string; // Format: "YYYY-MM-DD HH:mm:ss"
+  timestamp: string;
 }
 
-const initialUsers: UserDevice[] = [
-  {
-    id: "d1b2-4c3a-9f8e",
-    deviceModel: "Samsung Galaxy S23",
-    ipAddress: "103.25.12.4",
-    country: "Myanmar",
-    flag: "🇲🇲",
-    balance: 5100, // 170 ads
-    status: "online",
-    dataUsage: "12.5 GB",
-    lastSeen: "Just now",
-    version: "v1.2.0"
-  },
-  {
-    id: "a4c5-1b2d-3e4f",
-    deviceModel: "iPhone 14 Pro",
-    ipAddress: "202.14.55.1",
-    country: "Singapore",
-    flag: "🇸🇬",
-    balance: 150, // 5 ads
-    status: "offline",
-    dataUsage: "450 MB",
-    lastSeen: "2 hours ago",
-    version: "v1.2.0"
-  },
-  {
-    id: "f9e8-7d6c-5b4a",
-    deviceModel: "Redmi Note 12",
-    ipAddress: "156.22.11.9",
-    country: "Thailand",
-    flag: "🇹🇭",
-    balance: 0,
-    status: "banned",
-    dataUsage: "5.1 GB",
-    lastSeen: "3 days ago",
-    version: "v1.1.5"
-  },
-  {
-    id: "c3b2-1a4d-5e6f",
-    deviceModel: "Pixel 7",
-    ipAddress: "192.168.1.1",
-    country: "United States",
-    flag: "🇺🇸",
-    balance: 12600, // 420 ads
-    status: "online",
-    dataUsage: "22.8 GB",
-    lastSeen: "5 mins ago",
-    version: "v1.2.0"
-  },
-];
+// Format bytes to readable string
+const formatDataUsage = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+};
 
-// Mock logs generator
-const getMockLogs = (userId: string): ActivityLog[] => {
-  return [
-    { id: '1', type: 'ad_reward', description: 'Watched Reward Ad', amount: 30, timestamp: '2024-03-20 14:30:00' },
-    { id: '2', type: 'ad_reward', description: 'Watched Reward Ad', amount: 30, timestamp: '2024-03-20 14:15:00' },
-    { id: '3', type: 'withdrawal', description: 'Withdrawal Request (KBZ Pay)', amount: -5000, timestamp: '2024-03-18 09:30:00' },
-    { id: '4', type: 'ad_reward', description: 'Watched Reward Ad', amount: 30, timestamp: '2024-03-18 08:20:00' },
-    { id: '5', type: 'admin_adjustment', description: 'Bonus Points from Admin', amount: 100, timestamp: '2024-02-17 10:00:00' },
-  ];
+// Format date to relative time
+const formatLastSeen = (dateString: string | null): string => {
+  if (!dateString) return 'Unknown';
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} mins ago`;
+  if (diffMins < 1440) return `${Math.floor(diffMins / 60)} hours ago`;
+  return `${Math.floor(diffMins / 1440)} days ago`;
+};
+
+// Format VPN time (seconds to hours:minutes)
+const formatVpnTime = (seconds: number): string => {
+  if (seconds <= 0) return '0h 0m';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
 };
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<UserDevice[]>(initialUsers);
+  // 🔴 REAL-TIME: Use Firebase real-time listener hook
+  const { devices: realtimeDevices, isLoading, error: realtimeError } = useRealtimeDevices();
+  
   const [searchTerm, setSearchTerm] = useState("");
   
   // Edit Balance State
@@ -97,6 +58,12 @@ export default function UsersPage() {
   const [pointsAmount, setPointsAmount] = useState<number>(0);
   const [balanceAction, setBalanceAction] = useState<'add' | 'deduct'>('add');
   const [balanceReason, setBalanceReason] = useState("");
+
+  // VPN Time State (in minutes now)
+  const [showVpnTimeModal, setShowVpnTimeModal] = useState(false);
+  const [vpnTimeMinutes, setVpnTimeMinutes] = useState<number>(0);
+  const [vpnTimeAction, setVpnTimeAction] = useState<'add' | 'deduct' | 'set'>('add');
+  const [vpnTimeReason, setVpnTimeReason] = useState("");
 
   // History State
   const [viewingHistoryUser, setViewingHistoryUser] = useState<UserDevice | null>(null);
@@ -111,6 +78,9 @@ export default function UsersPage() {
   const [historyFilterType, setHistoryFilterType] = useState<'all' | 'earned' | 'used' | 'admin'>('all');
   const [timeFilterType, setTimeFilterType] = useState<'all' | 'date' | 'month' | 'year'>('all');
   const [selectedDate, setSelectedDate] = useState<string>(""); // For Date/Month/Year inputs
+
+  // Convert realtime devices to UserDevice format
+  const users: UserDevice[] = realtimeDevices;
 
   // Filter Logic
   const filteredUsers = users.filter((user) => 
@@ -182,20 +152,35 @@ export default function UsersPage() {
     setShowBanConfirmModal(true);
   };
 
-  const confirmBanToggle = () => {
+  const confirmBanToggle = async () => {
     if (userToBan) {
-      setUsers(users.map(u => {
-        if (u.id === userToBan.id) {
-          return { ...u, status: u.status === 'banned' ? 'offline' : 'banned' };
+      const isBanned = userToBan.status === 'banned';
+      try {
+        const response = await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: isBanned ? 'unban' : 'ban',
+            deviceId: userToBan.id,
+            reason: 'Banned by admin',
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          // Real-time hook will automatically update UI when Firebase changes
+          console.log(`✅ Device ${userToBan.id} ${isBanned ? 'unbanned' : 'banned'} successfully`);
+        } else {
+          console.error('Failed to toggle ban:', data.error);
         }
-        return u;
-      }));
+      } catch (error) {
+        console.error('Failed to toggle ban:', error);
+      }
       setShowBanConfirmModal(false);
       setUserToBan(null);
     }
   };
 
-  const handleAddPoints = () => {
+  const handleAddPoints = async () => {
     if (editingUser) {
       if (!balanceReason.trim()) {
         alert("Please provide a reason for this adjustment.");
@@ -204,25 +189,27 @@ export default function UsersPage() {
 
       const amount = balanceAction === 'add' ? pointsAmount : -pointsAmount;
 
-      // Create a new log entry
-      const newLog: ActivityLog = {
-        id: Date.now().toString(),
-        type: 'admin_adjustment',
-        description: balanceReason, // Use the admin provided reason
-        amount: amount,
-        timestamp: new Date().toISOString().replace('T', ' ').split('.')[0]
-      };
-
-      setUsers(users.map(u => {
-        if (u.id === editingUser.id) {
-          return { 
-            ...u, 
-            balance: u.balance + amount,
-            logs: [newLog, ...(u.logs || [])] // Prepend new log
-          };
+      try {
+        const response = await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'adjustBalance',
+            deviceId: editingUser.id,
+            amount,
+            reason: balanceReason,
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          // Real-time hook will automatically update UI when Firebase changes
+          console.log(`✅ Balance adjusted for ${editingUser.id}: ${amount > 0 ? '+' : ''}${amount}`);
+        } else {
+          console.error('Failed to adjust balance:', data.error);
         }
-        return u;
-      }));
+      } catch (error) {
+        console.error('Failed to adjust balance:', error);
+      }
       
       setShowBalanceModal(false);
       setPointsAmount(0);
@@ -231,21 +218,80 @@ export default function UsersPage() {
     }
   };
 
-  const handleViewHistory = (user: UserDevice) => {
+  const handleAdjustVpnTime = async () => {
+    if (editingUser) {
+      if (!vpnTimeReason.trim()) {
+        alert("Please provide a reason for this adjustment.");
+        return;
+      }
+
+      const seconds = vpnTimeMinutes * 60; // Convert minutes to seconds
+      let newSeconds: number;
+      
+      if (vpnTimeAction === 'set') {
+        newSeconds = seconds;
+      } else if (vpnTimeAction === 'add') {
+        newSeconds = (editingUser.vpnRemainingSeconds || 0) + seconds;
+      } else {
+        newSeconds = Math.max(0, (editingUser.vpnRemainingSeconds || 0) - seconds);
+      }
+
+      try {
+        const response = await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'adjustVpnTime',
+            deviceId: editingUser.id,
+            seconds: newSeconds,
+            reason: vpnTimeReason,
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          console.log(`✅ VPN time adjusted for ${editingUser.id}: ${formatVpnTime(newSeconds)}`);
+        } else {
+          console.error('Failed to adjust VPN time:', data.error);
+        }
+      } catch (error) {
+        console.error('Failed to adjust VPN time:', error);
+      }
+      
+      setShowVpnTimeModal(false);
+      setVpnTimeMinutes(0);
+      setVpnTimeReason("");
+      setEditingUser(null);
+    }
+  };
+
+  const handleViewHistory = async (user: UserDevice) => {
     setViewingHistoryUser(user);
-    // Combine generated mock logs with user's specific logs (e.g. admin adjustments)
-    const mockLogs = getMockLogs(user.id);
-    const userLogs = user.logs || [];
-    // Merge and sort by timestamp descending (simple string sort works for ISO format)
-    const combinedLogs = [...userLogs, ...mockLogs].sort((a, b) => 
-      b.timestamp.localeCompare(a.timestamp)
-    );
-    
-    setHistoryLogs(combinedLogs);
     setHistoryFilterType('all');
     setTimeFilterType('all');
     setSelectedDate('');
     setShowHistoryModal(true);
+    
+    // Fetch logs from Firebase API
+    try {
+      const response = await fetch('/api/devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'getLogs',
+          deviceId: user.id,
+          limit: 50,
+        }),
+      });
+      const data = await response.json();
+      if (data.success && data.logs) {
+        setHistoryLogs(data.logs);
+      } else {
+        setHistoryLogs([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch logs:', error);
+      setHistoryLogs([]);
+    }
   };
 
   return (
@@ -254,6 +300,15 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight dark:text-white">User Management (Devices)</h1>
           <p className="text-gray-500 dark:text-gray-400">Monitor active devices, connections, and balances</p>
+        </div>
+        {/* Real-time indicator */}
+        <div className="flex items-center gap-2 rounded-full bg-green-100 px-3 py-1.5 text-sm font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+          </span>
+          <Zap className="h-3.5 w-3.5" />
+          Real-time
         </div>
       </div>
 
@@ -285,38 +340,56 @@ export default function UsersPage() {
         <table className="w-full text-left text-sm text-gray-500 dark:text-gray-400">
           <thead className="bg-gray-50 text-xs uppercase text-gray-700 dark:bg-gray-700 dark:text-gray-300">
             <tr>
-              <th className="px-6 py-3">Device Info</th>
-              <th className="px-6 py-3">Connection</th>
-              <th className="px-6 py-3">Status</th>
-              <th className="px-6 py-3">Balance</th>
-              <th className="px-6 py-3">Usage</th>
-              <th className="px-6 py-3 text-right">Actions</th>
+              <th className="px-4 py-3">Account ID</th>
+              <th className="px-4 py-3">Device</th>
+              <th className="px-4 py-3">Connection</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Balance</th>
+              <th className="px-4 py-3">VPN Time</th>
+              <th className="px-4 py-3">Usage</th>
+              <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {filteredUsers.map((user) => (
               <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                      <Smartphone className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-white">{user.deviceModel}</div>
-                      <div className="font-mono text-xs text-gray-500 dark:text-gray-400">ID: {user.id}</div>
-                    </div>
-                  </div>
+                {/* Account ID Column */}
+                <td className="px-4 py-4">
+                  <button 
+                    onClick={() => navigator.clipboard.writeText(user.id)}
+                    className="font-mono text-sm font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 flex items-center gap-2"
+                    title="Click to copy"
+                  >
+                    {user.id}
+                    <svg className="h-3.5 w-3.5 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </button>
                 </td>
-                <td className="px-6 py-4">
+                {/* Device Column */}
+                <td className="px-4 py-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">{user.flag}</span>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      <Smartphone className="h-4 w-4" />
+                    </div>
                     <div>
-                      <div className="text-gray-900 dark:text-white">{user.ipAddress}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{user.country}</div>
+                      <div className="font-medium text-gray-900 dark:text-white text-sm">{user.deviceModel}</div>
+                      <div className="text-[10px] text-gray-500">{user.appVersion}</div>
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4">
+                {/* Connection Column */}
+                <td className="px-4 py-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{user.flag || '🌍'}</span>
+                    <div>
+                      <div className="text-sm text-gray-900 dark:text-white">{user.country || 'Unknown'}</div>
+                      <div className="text-[10px] text-gray-500 font-mono">{user.ipAddress || 'No IP'}</div>
+                    </div>
+                  </div>
+                </td>
+                {/* Status Column */}
+                <td className="px-4 py-4">
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
                       user.status === 'online' 
@@ -330,17 +403,26 @@ export default function UsersPage() {
                     {user.status === 'banned' && <Ban className="mr-1 h-3 w-3" />}
                     {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
                   </span>
-                  {user.status !== 'online' && (
-                    <div className="mt-1 text-xs text-gray-400">Seen: {user.lastSeen}</div>
+                  {user.status !== 'online' && user.lastSeen && (
+                    <div className="mt-1 text-[10px] text-gray-400">{formatLastSeen(user.lastSeen)}</div>
                   )}
                 </td>
-                <td className="px-6 py-4">
+                {/* Balance Column */}
+                <td className="px-4 py-4">
                   <div className="font-semibold text-gray-900 dark:text-white">{user.balance.toLocaleString()}</div>
-                  <div className="text-xs text-gray-500">Points</div>
+                  <div className="text-[10px] text-gray-500">Points</div>
                 </td>
-                <td className="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">
-                  <div className="font-medium text-gray-900 dark:text-white">{user.dataUsage}</div>
-                  <div>Ver: {user.version}</div>
+                {/* VPN Time Column */}
+                <td className="px-4 py-4">
+                  <div className={`font-semibold ${(user.vpnRemainingSeconds || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
+                    {formatVpnTime(user.vpnRemainingSeconds || 0)}
+                  </div>
+                  <div className="text-[10px] text-gray-500">Remaining</div>
+                </td>
+                {/* Data Usage Column - GB Format */}
+                <td className="px-4 py-4">
+                  <div className="font-medium text-gray-900 dark:text-white">{formatDataUsage(user.dataUsage || 0)}</div>
+                  <div className="text-[10px] text-gray-500">Total used</div>
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-2">
@@ -360,6 +442,19 @@ export default function UsersPage() {
                       title="Add/Remove Balance"
                     >
                       <Coins className="h-4 w-4" />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setEditingUser(user);
+                        setVpnTimeMinutes(0);
+                        setVpnTimeAction('add');
+                        setVpnTimeReason('');
+                        setShowVpnTimeModal(true);
+                      }}
+                      className="rounded p-1 text-gray-400 hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/30 dark:hover:text-green-400"
+                      title="Adjust VPN Time"
+                    >
+                      <Timer className="h-4 w-4" />
                     </button>
                     <button 
                       onClick={() => initiateBanToggle(user)}
@@ -516,6 +611,143 @@ export default function UsersPage() {
                 }`}
               >
                 {userToBan.status === 'banned' ? 'Yes, Unban' : 'Yes, Ban Device'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VPN Time Modal */}
+      {showVpnTimeModal && editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 dark:border dark:border-gray-700">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-green-100 p-2 dark:bg-green-900/30">
+                  <Timer className="h-5 w-5 text-green-600 dark:text-green-400" />
+                </div>
+                <h2 className="text-lg font-bold dark:text-white">Manage VPN Time</h2>
+              </div>
+              <button 
+                onClick={() => setShowVpnTimeModal(false)}
+                className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="mb-6">
+              <div className="mb-2 flex items-center gap-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-700/50">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-gray-600">
+                  <Smartphone className="h-5 w-5 text-gray-500 dark:text-gray-300" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">{editingUser.deviceModel}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{editingUser.id}</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Current VPN Time: <span className="font-medium text-green-600 dark:text-green-400">{formatVpnTime(editingUser.vpnRemainingSeconds || 0)}</span>
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <div className="mb-4 flex rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
+                <button
+                  onClick={() => setVpnTimeAction('add')}
+                  className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
+                    vpnTimeAction === 'add'
+                      ? 'bg-white text-green-600 shadow-sm dark:bg-gray-600 dark:text-green-400'
+                      : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                  }`}
+                >
+                  Add Time (+)
+                </button>
+                <button
+                  onClick={() => setVpnTimeAction('deduct')}
+                  className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
+                    vpnTimeAction === 'deduct'
+                      ? 'bg-white text-red-600 shadow-sm dark:bg-gray-600 dark:text-red-400'
+                      : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                  }`}
+                >
+                  Deduct (-)
+                </button>
+                <button
+                  onClick={() => setVpnTimeAction('set')}
+                  className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
+                    vpnTimeAction === 'set'
+                      ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-600 dark:text-blue-400'
+                      : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                  }`}
+                >
+                  Set To
+                </button>
+              </div>
+
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Minutes
+              </label>
+              <input 
+                type="number" 
+                min="1"
+                step="1"
+                value={vpnTimeMinutes || ''}
+                onChange={(e) => setVpnTimeMinutes(Math.abs(parseInt(e.target.value) || 0))}
+                className="mb-4 w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="e.g. 30"
+              />
+
+              {/* Quick Select Buttons */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[1, 5, 10, 30, 60, 120, 240, 480].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setVpnTimeMinutes(m)}
+                    className={`rounded px-3 py-1.5 text-sm ${vpnTimeMinutes === m ? 'bg-green-500 text-white' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                  >
+                    {m >= 60 ? `${m/60}h` : `${m}m`}
+                  </button>
+                ))}
+              </div>
+
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Reason (Required)
+              </label>
+              <input 
+                type="text" 
+                value={vpnTimeReason}
+                onChange={(e) => setVpnTimeReason(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                placeholder="e.g. Bonus, Promotion, Adjustment"
+              />
+
+              <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                New VPN Time will be: <strong className="text-green-600 dark:text-green-400">
+                  {formatVpnTime(
+                    vpnTimeAction === 'set' 
+                      ? vpnTimeMinutes * 60 
+                      : vpnTimeAction === 'add' 
+                        ? (editingUser.vpnRemainingSeconds || 0) + vpnTimeMinutes * 60
+                        : Math.max(0, (editingUser.vpnRemainingSeconds || 0) - vpnTimeMinutes * 60)
+                  )}
+                </strong>
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowVpnTimeModal(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdjustVpnTime}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+              >
+                Update VPN Time
               </button>
             </div>
           </div>

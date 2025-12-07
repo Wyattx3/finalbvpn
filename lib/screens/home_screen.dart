@@ -5,11 +5,15 @@ import 'settings_screen.dart';
 import 'location_selection_screen.dart';
 import 'rewards_screen.dart';
 import 'earn_money_screen.dart';
+import 'server_maintenance_screen.dart';
+import 'network_error_screen.dart';
 import '../user_manager.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
+import '../services/firebase_service.dart';
 import '../utils/message_dialog.dart';
-import '../utils/review_utils.dart'; // Import ReviewUtils
+import '../utils/review_utils.dart';
 import 'dynamic_popup_screen.dart';
+import '../utils/network_utils.dart';
 import 'dart:async';
 import 'dart:ui';
 
@@ -23,23 +27,48 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool isConnected = false;
   bool isConnecting = false;
-  String currentLocation = 'US - San Jose';
-  String currentFlag = '🇺🇸';
+  bool _connectionCancelled = false;
+  String currentLocation = 'Loading...';
+  String currentFlag = '🌍';
   
   final UserManager _userManager = UserManager();
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
+  final FirebaseService _firebaseService = FirebaseService();
   static const platform = MethodChannel('com.example.vpn_app/notification');
 
   // SDUI Config
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
+  StreamSubscription<Map<String, dynamic>>? _sduiSubscription;
+  
+  // Earn Money Config (for ad dialog)
+  Map<String, dynamic> _earnMoneyConfig = {};
+  StreamSubscription<Map<String, dynamic>>? _earnMoneySubscription;
+  
+  // Server Maintenance Config
+  Map<String, dynamic> _maintenanceConfig = {};
+  bool _isMaintenanceMode = false;
+  StreamSubscription<Map<String, dynamic>>? _maintenanceSubscription;
+  
+  // Network Error State
+  bool _hasNetworkError = false;
+  String _networkErrorMessage = '';
+  
+  // Server data from Firebase
+  List<Map<String, dynamic>> _servers = [];
 
   @override
   void initState() {
     super.initState();
     
+    // Load Firebase data
+    _loadFirebaseData();
+    
     // Load SDUI Config
     _loadServerConfig();
+    
+    // Check for Server Maintenance Mode
+    _startMaintenanceListener();
     
     // Check for Dynamic Popup (Update/Ban/Promo)
     _checkStartupPopup();
@@ -65,6 +94,46 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     };
   }
+  
+  // Load servers and balance from Firebase
+  Future<void> _loadFirebaseData() async {
+    try {
+      print('🔥 Loading Firebase data...');
+      
+      // Fetch servers from Firebase
+      final servers = await _firebaseService.getServers();
+      
+      if (mounted && servers.isNotEmpty) {
+        final firstServer = servers.first;
+        setState(() {
+          _servers = servers;
+          currentLocation = '${firstServer['country']} - ${firstServer['name']}';
+          currentFlag = firstServer['flag'] ?? '🌍';
+        });
+        print('✅ Loaded ${servers.length} servers. Default: $currentLocation');
+      } else {
+        // Fallback if no servers
+        setState(() {
+          currentLocation = 'No servers available';
+          currentFlag = '⚠️';
+        });
+        print('⚠️ No servers found in Firebase');
+      }
+      
+      // Refresh balance
+      await _userManager.refreshBalance();
+      print('💰 Balance: ${_userManager.balancePoints.value} points');
+      
+    } catch (e) {
+      print('❌ Firebase data error: $e');
+      if (mounted) {
+        setState(() {
+          currentLocation = 'Connection error';
+          currentFlag = '❌';
+        });
+      }
+    }
+  }
 
   Future<void> _checkReviewRequest() async {
     // Uncomment the line below to RESET for testing purposes (will set install time to 49h ago)
@@ -75,37 +144,243 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _checkStartupPopup() async {
-    try {
-      final response = await _sduiService.getScreenConfig('popup_startup');
-      if (mounted && response.containsKey('config')) {
-        final config = response['config'];
-        
-        // Check if popup is enabled from server
-        final bool isEnabled = config['enabled'] ?? false;
-        
-        if (isEnabled) {
-          showDynamicPopup(context, config);
-        }
-      }
-    } catch (e) {
-      debugPrint("Popup Error: $e");
+  StreamSubscription? _popupSubscription;
+  String _lastPopupConfigHash = '';
+  
+  // Current app version (should match pubspec.yaml)
+  static const String _currentAppVersion = '1.0.1';
+  
+  // Compare version strings (returns true if required > current)
+  bool _isVersionNewer(String required, String current) {
+    if (required.isEmpty) return false;
+    
+    final requiredParts = required.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final currentParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    
+    // Pad with zeros
+    while (requiredParts.length < 3) requiredParts.add(0);
+    while (currentParts.length < 3) currentParts.add(0);
+    
+    for (int i = 0; i < 3; i++) {
+      if (requiredParts[i] > currentParts[i]) return true;
+      if (requiredParts[i] < currentParts[i]) return false;
     }
+    return false; // Equal versions
   }
 
-  Future<void> _loadServerConfig() async {
-    try {
-      final response = await _sduiService.getScreenConfig('home');
-      if (mounted) {
+  void _startPopupListener() {
+    debugPrint('📢 Starting popup listener...');
+    _popupSubscription?.cancel();
+    _popupSubscription = _sduiService.watchScreenConfig('popup_startup').listen(
+      (response) {
+        debugPrint('📢 Popup response received: ${response.keys}');
+        if (mounted) {
+          final config = response['config'] as Map<String, dynamic>? ?? {};
+          final bool isEnabled = config['enabled'] == true;
+          final String popupType = config['popup_type'] as String? ?? 'announcement';
+          final String requiredVersion = config['required_app_version'] as String? ?? '';
+          
+          // For update popups, check version
+          bool shouldShowForVersion = true;
+          if (popupType == 'update' && requiredVersion.isNotEmpty) {
+            shouldShowForVersion = _isVersionNewer(requiredVersion, _currentAppVersion);
+            debugPrint('📢 Update popup - required: $requiredVersion, current: $_currentAppVersion, needs update: $shouldShowForVersion');
+          }
+          
+          // Create a hash of the config to detect changes (include ALL fields)
+          final buttons = config['buttons']?.toString() ?? '';
+          final configHash = [
+            config['enabled'],
+            config['title'],
+            config['message'],
+            config['image'],
+            config['display_type'],
+            config['title_color'],
+            config['message_color'],
+            config['button_color'],
+            config['button_text_color'],
+            config['is_dismissible'],
+            config['popup_type'],
+            config['required_app_version'],
+            buttons,
+          ].join('_');
+          
+          debugPrint('📢 ======= POPUP CONFIG UPDATE =======');
+          debugPrint('📢 enabled: $isEnabled');
+          debugPrint('📢 popup_type: $popupType');
+          debugPrint('📢 required_version: $requiredVersion');
+          debugPrint('📢 current_version: $_currentAppVersion');
+          debugPrint('📢 display_type: ${config['display_type']}');
+          debugPrint('📢 is_dismissible: ${config['is_dismissible']}');
+          debugPrint('📢 hash: $configHash');
+          debugPrint('📢 lastHash: $_lastPopupConfigHash');
+          debugPrint('📢 =====================================');
+          
+          // For update popup - always show until version matches (regardless of dismiss setting)
+          bool isUpdatePopup = popupType == 'update' && shouldShowForVersion;
+          bool isForceUpdate = isUpdatePopup && config['is_dismissible'] == false;
+          
+          // Show popup if:
+          // 1. Enabled AND version needs update (for update popups)
+          // 2. OR enabled AND config changed (for other popups)
+          bool shouldShow = isEnabled && (
+            (isUpdatePopup) || // Always show update popup if version mismatch
+            (shouldShowForVersion && configHash != _lastPopupConfigHash)
+          );
+          
+          debugPrint('📢 shouldShow=$shouldShow, isUpdatePopup=$isUpdatePopup, isForceUpdate=$isForceUpdate');
+          
+          if (shouldShow) {
+            // For update popups, never update hash so it keeps showing
+            if (!isUpdatePopup) {
+              _lastPopupConfigHash = configHash;
+            }
+            debugPrint('📢 ✅ Showing popup now! ${isForceUpdate ? "(FORCE UPDATE - can\'t dismiss)" : isUpdatePopup ? "(UPDATE REQUIRED)" : "(new config)"}');
+            
+            // Close ALL dialogs first before showing new one
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            
+            // Show new popup after a short delay to ensure old one is closed
+            Future.delayed(const Duration(milliseconds: 400), () {
+              if (mounted) {
+                // Add version check flag to config so _handleAction knows if update is really needed
+                final popupConfig = Map<String, dynamic>.from(config);
+                popupConfig['_needs_update'] = shouldShowForVersion;
+                showDynamicPopup(context, popupConfig);
+              }
+            });
+          } else if (!isEnabled) {
+            // Reset hash when disabled so it shows again when re-enabled
+            _lastPopupConfigHash = '';
+            // Also close any open popup when disabled
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            debugPrint('📢 ❌ Popup disabled, hash reset');
+          } else if (!shouldShowForVersion && popupType == 'update') {
+            _lastPopupConfigHash = ''; // Reset hash so it shows again if version changes
+            // Close any existing popup since app is now up to date
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            debugPrint('📢 ✅ App is up to date (v$_currentAppVersion >= v$requiredVersion), closing any update popup');
+          } else {
+            debugPrint('📢 ⏭️ Skipped: same config or not enabled');
+          }
+        }
+      },
+      onError: (e) => debugPrint("📢 Popup listener error: $e"),
+    );
+  }
+
+  Future<void> _checkStartupPopup() async {
+    // Start real-time listener for popup updates
+    _startPopupListener();
+  }
+
+  void _loadServerConfig() {
+    debugPrint('🏠 Home: Starting SDUI real-time listener...');
+    
+    // Timeout fallback - if SDUI doesn't load in 3 seconds, show default UI
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && _isLoading) {
+        debugPrint('⚠️ Home: SDUI timeout - showing default UI');
         setState(() {
-          _config = response['config'] ?? {};
           _isLoading = false;
         });
       }
-    } catch (e) {
-      debugPrint("SDUI Error: $e");
-      if (mounted) setState(() => _isLoading = false);
-    }
+    });
+    
+    // Use real-time listener for SDUI updates
+    _sduiSubscription = _sduiService.watchScreenConfig('home').listen(
+      (response) {
+        debugPrint('🏠 Home: Received SDUI update! Config keys: ${response.keys}');
+        if (mounted) {
+          final newConfig = response['config'] ?? {};
+          
+          // Check if show_timer changed and update notification
+          final oldTimerConfig = _config['timer_section'] ?? {};
+          final newTimerConfig = newConfig['timer_section'] ?? {};
+          final bool oldShowTimer = oldTimerConfig['show_timer'] ?? true;
+          final bool newShowTimer = newTimerConfig['show_timer'] ?? true;
+          
+          if (oldShowTimer != newShowTimer) {
+            debugPrint('🏠 Home: show_timer changed from $oldShowTimer to $newShowTimer');
+            _updateNotificationShowTimer(newShowTimer);
+          }
+          
+          debugPrint('🏠 Home: Updating UI with new config...');
+          setState(() {
+            _config = newConfig;
+            _isLoading = false;
+          });
+          debugPrint('✅ Home: UI updated with real-time SDUI config!');
+        }
+      },
+      onError: (e) {
+        debugPrint("❌ Home SDUI Error: $e");
+        if (mounted) setState(() => _isLoading = false);
+      },
+    );
+    
+    // Also load earn_money config for ad dialog text
+    _earnMoneySubscription = _sduiService.watchScreenConfig('earn_money').listen(
+      (response) {
+        debugPrint('🏠 Home: Received earn_money config for ad dialog');
+        if (mounted) {
+          final config = response['config'] ?? {};
+          setState(() {
+            _earnMoneyConfig = config;
+          });
+          debugPrint('✅ Home: earn_money config updated - reward: ${config['reward_per_ad']}, time_bonus: ${config['time_bonus_seconds']}');
+        }
+      },
+      onError: (e) {
+        debugPrint("❌ Home earn_money SDUI Error: $e");
+      },
+    );
+  }
+
+  void _startMaintenanceListener() {
+    debugPrint('🔧 Home: Starting server maintenance listener...');
+    
+    _maintenanceSubscription = _sduiService.watchScreenConfig('server_maintenance').listen(
+      (response) {
+        debugPrint('🔧 Home: Received maintenance config update');
+        if (mounted) {
+          final config = response['config'] ?? {};
+          final bool isEnabled = config['enabled'] == true;
+          
+          debugPrint('🔧 Maintenance mode: $isEnabled');
+          
+          setState(() {
+            _maintenanceConfig = config;
+            _isMaintenanceMode = isEnabled;
+          });
+        }
+      },
+      onError: (e) {
+        debugPrint("❌ Maintenance SDUI Error: $e");
+        // On error, show network error screen
+        if (mounted) {
+          setState(() {
+            _hasNetworkError = true;
+            _networkErrorMessage = 'Unable to connect to server.\nPlease check your internet connection.';
+          });
+        }
+      },
+    );
+  }
+
+  void _retryConnection() {
+    debugPrint('🔄 Retrying connection...');
+    setState(() {
+      _hasNetworkError = false;
+      _networkErrorMessage = '';
+      _isLoading = true;
+    });
+    
+    // Restart all listeners
+    _loadServerConfig();
+    _startMaintenanceListener();
+    _checkStartupPopup();
+    _loadFirebaseData();
   }
 
   Future<void> _requestPermission() async {
@@ -118,33 +393,75 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _sduiSubscription?.cancel();
+    _earnMoneySubscription?.cancel();
+    _popupSubscription?.cancel();
+    _maintenanceSubscription?.cancel();
     _userManager.stopTimer();
     _stopNotification();
     super.dispose();
   }
   
   Future<void> _startNotification() async {
+    // Get show_timer from SDUI config
+    final timerConfig = _config['timer_section'] ?? {};
+    final bool showTimer = timerConfig['show_timer'] ?? true;
+    
     try {
       await platform.invokeMethod('startNotification', {
         'location': currentLocation,
         'flag': currentFlag,
         'remaining_seconds': _userManager.remainingSeconds.value,
+        'show_timer': showTimer,
       });
+      
+      // Listen to remaining seconds changes and update notification
+      _userManager.remainingSeconds.addListener(_updateNotificationTime);
     } on PlatformException catch (e) {
       debugPrint("Failed to start notification: '${e.message}'.");
+    }
+  }
+  
+  void _updateNotificationShowTimer(bool showTimer) {
+    if (isConnected) {
+      try {
+        platform.invokeMethod('updateShowTimer', {
+          'show_timer': showTimer,
+        });
+      } catch (e) {
+        debugPrint("Failed to update show timer: $e");
+      }
+    }
+  }
+  
+  void _updateNotificationTime() {
+    if (isConnected) {
+      try {
+        platform.invokeMethod('updateNotificationTime', {
+          'remaining_seconds': _userManager.remainingSeconds.value,
+        });
+      } catch (e) {
+        // Silently fail - notification update is not critical
+      }
     }
   }
 
   Future<void> _stopNotification() async {
     try {
+      // Remove listener when stopping notification
+      _userManager.remainingSeconds.removeListener(_updateNotificationTime);
       await platform.invokeMethod('stopNotification');
     } on PlatformException catch (e) {
       debugPrint("Failed to stop notification: '${e.message}'.");
     }
   }
 
-  void _toggleConnection() {
-    if (isConnecting) return;
+  void _toggleConnection() async {
+    // If connecting, cancel the connection
+    if (isConnecting) {
+      _cancelConnection();
+      return;
+    }
 
     if (isConnected) {
       _userManager.stopTimer();
@@ -153,6 +470,15 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       _stopNotification();
     } else {
+      // Check network connection before connecting
+      final hasConnection = await NetworkUtils.hasInternetConnection();
+      if (!hasConnection) {
+        if (mounted) {
+          NetworkUtils.showNetworkErrorDialog(context, onRetry: _toggleConnection);
+        }
+        return;
+      }
+      
       if (_userManager.remainingSeconds.value > 0) {
         _simulateConnection();
       } else {
@@ -161,13 +487,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _cancelConnection() {
+    debugPrint('🚫 Connection cancelled by user');
+    _connectionCancelled = true;
+    setState(() {
+      isConnecting = false;
+    });
+  }
+
   void _simulateConnection() {
+    _connectionCancelled = false;
     setState(() {
       isConnecting = true;
     });
     
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
+      if (mounted && !_connectionCancelled) {
         setState(() {
           isConnecting = false;
           isConnected = true;
@@ -179,6 +514,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAdDialog() {
+    // Get values from SDUI config (cast to int to handle Firestore num/double)
+    final int timeBonusSeconds = (_earnMoneyConfig['time_bonus_seconds'] as num?)?.toInt() ?? 7200;
+    final int rewardPerAd = (_earnMoneyConfig['reward_per_ad'] as num?)?.toInt() ?? 30;
+    
+    // Format time bonus for display
+    String timeBonusText;
+    if (timeBonusSeconds >= 3600) {
+      final hours = timeBonusSeconds / 3600;
+      timeBonusText = hours == hours.toInt() ? '${hours.toInt()} hours' : '${hours.toStringAsFixed(1)} hours';
+    } else {
+      final minutes = timeBonusSeconds ~/ 60;
+      timeBonusText = '$minutes minutes';
+    }
+    
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -199,10 +548,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Watch a short ad to get 2 hours of VPN time and earn 30 MMK.',
+              Text(
+                'Watch a short ad to get $timeBonusText of VPN time and earn $rewardPerAd MMK.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
+                style: const TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 24),
               SizedBox(
@@ -231,7 +580,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _simulateAdWatch() {
+  void _simulateAdWatch() async {
+    // Check network connection before watching ad
+    final hasConnection = await NetworkUtils.hasInternetConnection();
+    if (!hasConnection) {
+      if (mounted) {
+        NetworkUtils.showNetworkErrorDialog(context, onRetry: _simulateAdWatch);
+      }
+      return;
+    }
+    
+    // Get values from SDUI config (cast to int to handle Firestore num/double)
+    final int timeBonusSeconds = (_earnMoneyConfig['time_bonus_seconds'] as num?)?.toInt() ?? 7200;
+    final int rewardPerAd = (_earnMoneyConfig['reward_per_ad'] as num?)?.toInt() ?? 30;
+    
+    // Format time bonus for success message
+    String timeBonusText;
+    if (timeBonusSeconds >= 3600) {
+      final hours = timeBonusSeconds / 3600;
+      timeBonusText = hours == hours.toInt() ? '${hours.toInt()} Hours' : '${hours.toStringAsFixed(1)} Hours';
+    } else {
+      final minutes = timeBonusSeconds ~/ 60;
+      timeBonusText = '$minutes Minutes';
+    }
+    
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -250,16 +622,19 @@ class _HomeScreenState extends State<HomeScreen> {
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.pop(context);
-        _userManager.watchAdReward();
         
+        // Show reward dialog - only add points when user taps OK
         showMessageDialog(
           context,
-          message: '+2 Hours Added, +30 MMK Earned',
+          message: '+$timeBonusText Added, +$rewardPerAd MMK Earned',
           type: MessageType.success,
           title: 'Reward Earned!',
+          onOkPressed: () {
+            // Add reward AFTER user confirms
+            _userManager.watchAdReward();
+            _simulateConnection();
+          },
         );
-
-        _simulateConnection();
       }
     });
   }
@@ -290,6 +665,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Show network error screen if connection failed
+    if (_hasNetworkError) {
+      return NetworkErrorScreen(
+        errorMessage: _networkErrorMessage,
+        onRetry: _retryConnection,
+      );
+    }
+    
+    // Show maintenance screen if server is under maintenance
+    if (_isMaintenanceMode) {
+      return ServerMaintenanceScreen(config: _maintenanceConfig);
+    }
+    
     if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -306,6 +694,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final appBarConfig = _config['app_bar'] ?? {};
     final buttonConfig = _config['main_button'] ?? {};
     final cardConfig = _config['location_card'] ?? {};
+    final timerConfig = _config['timer_section'] ?? {};
+    final bool showTimer = timerConfig['show_timer'] ?? true;
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -387,13 +777,19 @@ class _HomeScreenState extends State<HomeScreen> {
           return ValueListenableBuilder<int>(
             valueListenable: _userManager.remainingSeconds,
             builder: (context, remainingSeconds, child) {
+              // Format time from the builder's remainingSeconds value
+              int h = remainingSeconds ~/ 3600;
+              int m = (remainingSeconds % 3600) ~/ 60;
+              int s = remainingSeconds % 60;
+              String formattedTime = "${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
+              
               return Column(
                 children: [
-                  // Top Section: Timer (Flexible space)
+                  // Top Section: Timer (Flexible space) - Controlled by SDUI
                   Expanded(
                     flex: 2,
                     child: Center(
-                      child: remainingSeconds > 0
+                      child: (showTimer && remainingSeconds > 0)
                         ? Container(
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                             decoration: BoxDecoration(
@@ -407,7 +803,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 const Icon(Icons.timer, size: 16, color: Colors.deepPurple),
                                 const SizedBox(width: 8),
                                 Text(
-                                  _userManager.formattedTime,
+                                  formattedTime,
                                   style: const TextStyle(
                                     color: Colors.deepPurple,
                                     fontWeight: FontWeight.bold,
@@ -425,15 +821,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Middle Section: Power Button & Text (Largest Space)
                   Expanded(
                     flex: 5,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Power Button
-                        GestureDetector(
-                          onTap: _toggleConnection,
-                          child: Container(
-                            width: buttonSize,
-                            height: buttonSize,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Power Button
+                          GestureDetector(
+                            onTap: _toggleConnection,
+                            child: Container(
+                              width: buttonSize,
+                              height: buttonSize,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: isConnected 
@@ -479,20 +878,21 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         
-                        SizedBox(height: screenHeight * 0.04), // Dynamic spacing
+                          const SizedBox(height: 20), // Fixed spacing
 
-                        // Status Text
-                        Text(
-                          isConnecting 
-                              ? (buttonConfig['status_text_connecting'] ?? 'Establishing Connection...') 
-                              : (isConnected ? (buttonConfig['status_text_connected'] ?? 'VPN is On') : (buttonConfig['status_text_disconnected'] ?? 'Tap to Connect')),
-                          style: TextStyle(
-                            color: isConnecting ? Colors.orange : (isConnected ? Colors.green : subTextColor),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
+                          // Status Text
+                          Text(
+                            isConnecting 
+                                ? (buttonConfig['status_text_connecting'] ?? 'Connecting...') 
+                                : (isConnected ? (buttonConfig['status_text_connected'] ?? 'VPN is On') : (buttonConfig['status_text_disconnected'] ?? 'Tap to Connect')),
+                            style: TextStyle(
+                              color: isConnecting ? Colors.orange : (isConnected ? Colors.green : subTextColor),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
 

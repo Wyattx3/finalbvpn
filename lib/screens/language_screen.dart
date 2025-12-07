@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/mock_sdui_service.dart';
+import '../services/sdui_service.dart';
 import '../utils/message_dialog.dart';
 
 class LanguageScreen extends StatefulWidget {
@@ -10,7 +10,7 @@ class LanguageScreen extends StatefulWidget {
 }
 
 class _LanguageScreenState extends State<LanguageScreen> {
-  final MockSduiService _sduiService = MockSduiService();
+  final SduiService _sduiService = SduiService();
   String selectedLanguage = 'English';
   
   // SDUI Data
