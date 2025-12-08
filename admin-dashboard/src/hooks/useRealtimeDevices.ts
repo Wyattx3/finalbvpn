@@ -10,7 +10,7 @@ export interface RealtimeDevice {
   country: string;
   flag: string;
   balance: number;
-  status: "online" | "offline" | "banned";
+  status: "online" | "offline" | "banned" | "vpn_connected";
   dataUsage: number;
   lastSeen: string;
   appVersion: string;
@@ -22,11 +22,24 @@ export interface RealtimeDevice {
 // 5 minutes timeout for "online" status
 const ONLINE_TIMEOUT_MS = 5 * 60 * 1000;
 
-// Calculate online status based on lastSeen timestamp
-function calculateOnlineStatus(lastSeen: Date | null, storedStatus: string): "online" | "offline" | "banned" {
+// Calculate online status based on lastSeen timestamp and stored status
+function calculateOnlineStatus(lastSeen: Date | null, storedStatus: string): "online" | "offline" | "banned" | "vpn_connected" {
   // If banned, keep as banned
   if (storedStatus === 'banned') {
     return 'banned';
+  }
+  
+  // If VPN connected, show as vpn_connected (takes priority)
+  if (storedStatus === 'vpn_connected') {
+    // But still check if it's stale
+    if (lastSeen) {
+      const now = new Date();
+      const timeDiff = now.getTime() - lastSeen.getTime();
+      if (timeDiff <= ONLINE_TIMEOUT_MS) {
+        return 'vpn_connected';
+      }
+    }
+    return 'offline';
   }
   
   if (!lastSeen) {
@@ -38,7 +51,7 @@ function calculateOnlineStatus(lastSeen: Date | null, storedStatus: string): "on
   
   // If last seen within 5 minutes, consider online
   if (timeDiff <= ONLINE_TIMEOUT_MS) {
-    return 'online';
+    return storedStatus === 'online' ? 'online' : 'offline';
   }
   
   return 'offline';

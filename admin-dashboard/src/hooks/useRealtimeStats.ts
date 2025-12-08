@@ -44,7 +44,8 @@ export function useRealtimeStats() {
           totalAdsWatched += data.adsWatchedToday || 0;
           totalEarnings += data.todayEarnings || 0;
           
-          if (data.status === 'online') onlineUsers++;
+          // Count both 'online' and 'vpn_connected' as online users
+          if (data.status === 'online' || data.status === 'vpn_connected') onlineUsers++;
           if (data.status === 'banned') bannedUsers++;
         });
         

@@ -11,6 +11,30 @@ import { useRealtimeLoginActivity } from "@/hooks/useRealtimeLoginActivity";
 
 const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#6B7280', '#EF4444'];
 
+// Format amount as MMK (Myanmar Kyat) - KPay style
+const formatMMK = (amount: number): string => {
+  if (amount >= 1000000) {
+    // 1,000,000+ -> "1.5M MMK"
+    return `${(amount / 1000000).toFixed(1)}M MMK`;
+  } else if (amount >= 1000) {
+    // 1,000+ -> "50,000 MMK" or "1.5K MMK" for shorter display
+    return `${amount.toLocaleString()} MMK`;
+  }
+  return `${amount.toLocaleString()} MMK`;
+};
+
+// Shorter format for card values
+const formatMMKShort = (amount: number): string => {
+  if (amount >= 1000000) {
+    return `${(amount / 1000000).toFixed(1)}M`;
+  } else if (amount >= 100000) {
+    return `${(amount / 1000).toFixed(0)}K`;
+  } else if (amount >= 1000) {
+    return amount.toLocaleString();
+  }
+  return amount.toString();
+};
+
 interface ChartDataItem {
   name: string;
   users: number;
@@ -63,6 +87,9 @@ export default function DashboardPage() {
         ...prev,
         totalUsers: realtimeStats.totalUsers,
         pendingWithdrawals: pendingWithdrawals,
+        // Use real-time total balance as indicator of rewards
+        // totalBalance represents current balance of all users
+        rewardsThisMonth: realtimeStats.totalBalance + (prev.withdrawalsThisMonth || 0),
       }));
     }
   }, [realtimeStats, pendingWithdrawals, statsLoading]);
@@ -150,25 +177,27 @@ export default function DashboardPage() {
       name: "Active Servers",
       value: summaryStats.activeServers.toString(),
       change: 0,
-      subtext: "Online now",
+      subtext: `${realtimeStats.onlineUsers} users online`,
       icon: Server,
       color: "bg-green-500",
     },
     {
       name: "Rewards Earned",
-      value: `${(summaryStats.rewardsThisMonth / 1000).toFixed(1)}K`,
+      value: formatMMKShort(summaryStats.rewardsThisMonth),
       change: 0,
-      subtext: "This month",
+      subtext: `+${formatMMK(realtimeStats.totalEarnings)} today`,
       icon: Activity,
       color: "bg-purple-500",
+      unit: "MMK",
     },
     {
       name: "Withdrawals",
-      value: `${(summaryStats.withdrawalsThisMonth / 1000).toFixed(1)}K`,
+      value: formatMMKShort(summaryStats.withdrawalsThisMonth),
       change: summaryStats.withdrawalChange,
       subtext: `${summaryStats.pendingWithdrawals} pending`,
       icon: Wallet,
       color: "bg-orange-500",
+      unit: "MMK",
     },
   ];
 
@@ -281,7 +310,10 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{stat.name}</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {stat.value}
+                  {stat.unit && <span className="ml-1 text-sm font-medium text-gray-500 dark:text-gray-400">{stat.unit}</span>}
+                </p>
               </div>
             </div>
             <div className="mt-4 flex items-center gap-1 text-sm">
@@ -354,15 +386,21 @@ export default function DashboardPage() {
           <div className="h-[300px] w-full">
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" className="dark:stroke-gray-700" />
                   <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#9CA3AF" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis 
+                    stroke="#9CA3AF" 
+                    fontSize={12} 
+                    tickLine={false} 
+                    axisLine={false}
+                    tickFormatter={(value) => value >= 1000 ? `${(value/1000).toFixed(0)}K` : value}
+                  />
                   <Tooltip 
                     cursor={{ fill: 'rgba(107, 114, 128, 0.1)' }}
                     contentStyle={tooltipStyle}
                     labelStyle={tooltipLabelStyle}
-                    itemStyle={tooltipItemStyle}
+                    formatter={(value: number) => [`${value.toLocaleString()} MMK`, 'Rewards']}
                   />
                   <Bar dataKey="rewards" fill="#8B5CF6" radius={[4, 4, 0, 0]} name="Rewards" />
                 </BarChart>
@@ -422,14 +460,20 @@ export default function DashboardPage() {
           <div className="h-[300px] w-full">
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" className="dark:stroke-gray-700" />
                   <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#9CA3AF" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis 
+                    stroke="#9CA3AF" 
+                    fontSize={12} 
+                    tickLine={false} 
+                    axisLine={false}
+                    tickFormatter={(value) => value >= 1000 ? `${(value/1000).toFixed(0)}K` : value}
+                  />
                   <Tooltip 
                     contentStyle={tooltipStyle}
                     labelStyle={tooltipLabelStyle}
-                    itemStyle={tooltipItemStyle}
+                    formatter={(value: number) => [`${value.toLocaleString()} MMK`, 'Withdrawals']}
                   />
                   <Line type="monotone" dataKey="withdrawals" stroke="#F97316" strokeWidth={3} dot={{ r: 4, fill: "#F97316" }} activeDot={{ r: 6 }} name="Withdrawals" />
                 </LineChart>

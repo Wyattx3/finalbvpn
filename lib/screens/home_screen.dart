@@ -15,6 +15,8 @@ import '../utils/message_dialog.dart';
 import '../utils/review_utils.dart';
 import 'dynamic_popup_screen.dart';
 import '../utils/network_utils.dart';
+import '../utils/v2ray_config.dart';
+import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'dart:async';
 import 'dart:ui';
 
@@ -32,12 +34,14 @@ class _HomeScreenState extends State<HomeScreen> {
   String currentLocation = 'Loading...';
   String currentFlag = '🌍';
   
+  late final FlutterV2ray _flutterV2ray;
+  
   final UserManager _userManager = UserManager();
   final SduiService _sduiService = SduiService();
   final FirebaseService _firebaseService = FirebaseService();
   final VpnSpeedService _speedService = VpnSpeedService();
   static const platform = MethodChannel('com.example.vpn_app/notification');
-  static const vpnPlatform = MethodChannel('com.example.vpn_app/vpn');
+  // static const vpnPlatform = MethodChannel('com.example.vpn_app/vpn'); // Replaced by flutter_v2ray
   
   // Current selected server
   Map<String, dynamic>? _selectedServer;
@@ -66,6 +70,38 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // Initialize V2Ray
+    _flutterV2ray = FlutterV2ray(
+      onStatusChanged: (status) {
+        debugPrint('🔌 V2Ray Status: state=${status.state}, dl=${status.downloadSpeed}B/s, ul=${status.uploadSpeed}B/s, totalDl=${status.download}, totalUl=${status.upload}');
+        
+        if (mounted) {
+          setState(() {
+            // Using string comparison as V2RayStatus enum might not be available or state is a String
+            isConnected = status.state.toString() == 'CONNECTED';
+            isConnecting = status.state.toString() == 'CONNECTING';
+          });
+          
+          // Always update speed service when connected (even if speeds are 0)
+          if (isConnected) {
+            // Update speed service with real data from plugin
+            // flutter_v2ray gives int for speeds (B/s) and cumulative bytes
+            _speedService.updateRealTimeStatus(
+              status.downloadSpeed, 
+              status.uploadSpeed, 
+              0, // Ping is measured separately via TCP
+              status.upload, 
+              status.download
+            );
+            
+            // Update Notification with real stats
+            _updateNotificationWithSpeeds(status.downloadSpeed, status.uploadSpeed);
+          }
+        }
+      },
+    );
+    _flutterV2ray.initializeV2Ray();
     
     // Load Firebase data
     _loadFirebaseData();
@@ -459,6 +495,24 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
+  
+  void _updateNotificationWithSpeeds(int downloadSpeedBytes, int uploadSpeedBytes) {
+    if (!isConnected) return;
+    
+    try {
+      final dlStr = _speedService.formatBytes(downloadSpeedBytes) + "/s";
+      final ulStr = _speedService.formatBytes(uploadSpeedBytes) + "/s";
+      final pingStr = "${_speedService.pingMs.value}ms";
+      
+      platform.invokeMethod('updateNotificationStats', {
+        'download_speed': dlStr,
+        'upload_speed': ulStr,
+        'ping': pingStr,
+      });
+    } catch (e) {
+      debugPrint('❌ Failed to update notification stats: $e');
+    }
+  }
 
   Future<void> _stopNotification() async {
     try {
@@ -479,11 +533,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (isConnected) {
       _userManager.stopTimer();
-      _speedService.stopSpeedMonitoring(); // Stop speed monitoring
+      
+      // Stop speed monitoring and decrement connection count (await to ensure completion)
+      await _speedService.stopSpeedMonitoring();
+      debugPrint('📱 Speed monitoring stopped, connection count decremented');
+      
+      // Update device status back to 'online' (VPN disconnected but app still open)
+      await _firebaseService.updateDeviceStatus('online');
+      debugPrint('📱 Device status updated to online (VPN disconnected)');
       
       // Disconnect VPN service
       try {
-        await vpnPlatform.invokeMethod('disconnectVpn');
+        await _flutterV2ray.stopV2Ray();
         debugPrint('📱 VPN disconnected');
       } catch (e) {
         debugPrint('❌ Error disconnecting VPN: $e');
@@ -504,92 +565,143 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       
       if (_userManager.remainingSeconds.value > 0) {
-        _simulateConnection();
+        _startVpnConnection();
       } else {
         _showAdDialog();
       }
     }
   }
 
-  void _cancelConnection() {
+  void _cancelConnection() async {
     debugPrint('🚫 Connection cancelled by user');
     _connectionCancelled = true;
+    await _flutterV2ray.stopV2Ray();
     setState(() {
       isConnecting = false;
     });
   }
 
-  void _simulateConnection() async {
+  void _startVpnConnection() async {
     _connectionCancelled = false;
+    
+    // Check server status before connecting
+    final serverStatus = _selectedServer?['status'] as String? ?? 'online';
+    if (serverStatus == 'maintenance') {
+      if (mounted) {
+        showMessageDialog(
+          context,
+          message: 'This server is under maintenance. Please select another server.',
+          type: MessageType.warning,
+          title: 'Server Maintenance',
+        );
+      }
+      return;
+    }
+    if (serverStatus == 'offline') {
+      if (mounted) {
+        showMessageDialog(
+          context,
+          message: 'This server is currently offline. Please select another server.',
+          type: MessageType.error,
+          title: 'Server Offline',
+        );
+      }
+      return;
+    }
+    
     setState(() {
       isConnecting = true;
     });
     
     // Get port based on selected protocol
-    final port = _userManager.getPortForProtocol();
     final protocolName = _userManager.getProtocolName();
     final networkType = _userManager.getNetworkForProtocol();
+    // Default ports: 443 (WS), 8443 (TCP), 4434 (QUIC)
+    int port = 443;
+    if (networkType == 'tcp') port = 8443;
+    if (networkType == 'quic') port = 4434;
+    
     debugPrint('🔌 Connecting with protocol: $protocolName on port $port');
     
     // Request VPN permission and connect
     try {
-      final serverAddress = _selectedServer?['address'] as String? ?? '';
-      final uuid = _selectedServer?['uuid'] as String? ?? '';
-      
-      // Call native VPN connection
-      final result = await vpnPlatform.invokeMethod('connectVpn', {
-        'server_address': serverAddress,
-        'server_port': port,
-        'protocol': networkType,
-        'uuid': uuid,
-      });
-      
-      debugPrint('📱 VPN connect result: $result');
-      
-      if (result['success'] == true) {
+      if (await _flutterV2ray.requestPermission()) {
+        final serverAddress = _selectedServer?['address'] as String? ?? '';
+        final uuid = _selectedServer?['uuid'] as String? ?? '';
+        final path = _selectedServer?['path'] as String? ?? '/';
+        final useTls = _selectedServer?['tls'] as bool? ?? true;
+        final alterId = (_selectedServer?['alterId'] as num?)?.toInt() ?? 0;
+        final security = _selectedServer?['security'] as String? ?? 'auto';
+        
+        debugPrint('🔌 Connecting to V2Ray: $serverAddress:$port');
+        debugPrint('🔌 Protocol: $networkType, TLS: $useTls, Path: $path');
+        debugPrint('🔌 UUID: ${uuid.substring(0, 8)}..., Security: $security');
+        
+        // Generate Config
+        final config = V2RayConfig.generateConfig(
+          serverAddress: serverAddress,
+          serverPort: port,
+          uuid: uuid,
+          alterId: alterId,
+          security: security,
+          network: networkType,
+          path: path,
+          tls: useTls,
+          remark: _selectedServer?['name'] ?? 'BVPN',
+        );
+        
+        // Start V2Ray
+        await _flutterV2ray.startV2Ray(
+          remark: _selectedServer?['name'] ?? 'BVPN',
+          config: config,
+          blockedApps: null,
+        );
+        
+        // Note: isConnected state will be updated by onStatusChanged listener
+        
         // Measure ping to server
         if (serverAddress.isNotEmpty) {
           await _speedService.updatePingForServer(serverAddress);
         }
         
         if (mounted && !_connectionCancelled) {
-          setState(() {
-            isConnecting = false;
-            isConnected = true;
-          });
           _userManager.startTimer();
           _startNotification();
           
-          // Start speed monitoring
+          // Update device status to 'vpn_connected' (online with VPN)
+          await _firebaseService.updateDeviceStatus('vpn_connected');
+          debugPrint('📱 Device status updated to vpn_connected');
+          
+          // Start speed monitoring (Firebase bandwidth tracking)
           final deviceId = await _firebaseService.getDeviceId();
           final serverId = _selectedServer?['id'] as String? ?? 'unknown';
-          _speedService.startSpeedMonitoring(serverId, deviceId);
+          _speedService.startSpeedMonitoring(serverId, deviceId, serverAddress: serverAddress);
           
           debugPrint('✅ Connected via $protocolName');
         }
       } else {
-        // Permission denied or connection failed
+        // Permission denied
         if (mounted) {
           setState(() {
             isConnecting = false;
           });
           showMessageDialog(
             context,
-            message: result['error'] ?? 'VPN permission required',
+            message: 'VPN permission required',
             type: MessageType.warning,
             title: 'Connection Failed',
           );
         }
       }
-    } on PlatformException catch (e) {
-      debugPrint('❌ VPN Platform error: ${e.message}');
+    } catch (e) {
+      debugPrint('❌ VPN Error: $e');
       if (mounted) {
         setState(() {
           isConnecting = false;
         });
         showMessageDialog(
           context,
-          message: 'Failed to connect: ${e.message}',
+          message: 'Failed to connect: $e',
           type: MessageType.error,
           title: 'Error',
         );
@@ -716,7 +828,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onOkPressed: () {
             // Add reward AFTER user confirms
             _userManager.watchAdReward();
-            _simulateConnection();
+            _startVpnConnection();
           },
         );
       }
@@ -1093,6 +1205,30 @@ class _HomeScreenState extends State<HomeScreen> {
                                                   fontWeight: FontWeight.w600,
                                                   color: ping < 100 ? Colors.green : (ping < 200 ? Colors.orange : Colors.red),
                                                 ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              // Server Load
+                                              ValueListenableBuilder<String>(
+                                                valueListenable: _speedService.serverLoadStatus,
+                                                builder: (context, load, child) {
+                                                  Color loadColor = Colors.green;
+                                                  if (load == 'Medium') loadColor = Colors.orange;
+                                                  if (load == 'High') loadColor = Colors.red;
+                                                  
+                                                  return Row(
+                                                    children: [
+                                                      Icon(Icons.dns, size: 12, color: isConnected ? loadColor : Colors.grey),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        'Load: $load',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: textColor.withOpacity(0.7),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  );
+                                                },
                                               ),
                                               const Spacer(),
                                               // Download speed

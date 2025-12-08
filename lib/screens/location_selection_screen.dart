@@ -215,6 +215,15 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                               'server': server,
                             });
                           },
+                          onMaintenanceServerTapped: (serverName) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('$serverName is under maintenance. Please try another server.'),
+                                backgroundColor: Colors.orange,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
                         );
                       },
                     ),
@@ -234,6 +243,7 @@ class CountryTile extends StatelessWidget {
   final String selectedLocation;
   final bool isDark;
   final Function(String, Map<String, dynamic>) onLocationSelected;
+  final Function(String) onMaintenanceServerTapped;
 
   const CountryTile({
     super.key,
@@ -244,6 +254,7 @@ class CountryTile extends StatelessWidget {
     required this.selectedLocation,
     required this.isDark,
     required this.onLocationSelected,
+    required this.onMaintenanceServerTapped,
   });
 
   @override
@@ -291,44 +302,85 @@ class CountryTile extends StatelessWidget {
   Widget _buildLocationItem(String location, Map<String, dynamic> server, Color textColor) {
     bool isSelected = location == selectedLocation;
     final latency = server['latency'] ?? 0;
+    final status = server['status'] as String? ?? 'online';
+    final isMaintenance = status == 'maintenance';
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.deepPurple.withOpacity(0.1) : null,
+        color: isMaintenance 
+            ? Colors.orange.withOpacity(0.1)
+            : isSelected 
+                ? Colors.deepPurple.withOpacity(0.1) 
+                : null,
         borderRadius: BorderRadius.circular(10),
-        border: isSelected
-            ? Border.all(color: Colors.deepPurple)
-            : null,
+        border: isMaintenance
+            ? Border.all(color: Colors.orange.withOpacity(0.5))
+            : isSelected
+                ? Border.all(color: Colors.deepPurple)
+                : null,
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: Text(
-          location,
-          style: TextStyle(
-            color: isSelected ? Colors.deepPurple : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                location,
+                style: TextStyle(
+                  color: isMaintenance 
+                      ? Colors.orange.shade700
+                      : isSelected 
+                          ? Colors.deepPurple 
+                          : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ),
+            if (isMaintenance) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.orange,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'Maintenance',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              '${latency}ms',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade500,
+            if (!isMaintenance) ...[
+              Text(
+                '${latency}ms',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.signal_cellular_alt, color: Colors.green, size: 20),
-            if (isSelected) ...[
+              const SizedBox(width: 8),
+              const Icon(Icons.signal_cellular_alt, color: Colors.green, size: 20),
+            ] else ...[
+              Icon(Icons.construction, color: Colors.orange.shade700, size: 20),
+            ],
+            if (isSelected && !isMaintenance) ...[
               const SizedBox(width: 8),
               const Icon(Icons.check_circle, color: Colors.deepPurple, size: 20),
             ]
           ],
         ),
-        onTap: () => onLocationSelected(location, server),
+        onTap: isMaintenance 
+            ? () => onMaintenanceServerTapped(location)
+            : () => onLocationSelected(location, server),
       ),
     );
   }

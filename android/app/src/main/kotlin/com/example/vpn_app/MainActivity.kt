@@ -45,6 +45,10 @@ class MainActivity : FlutterActivity() {
     private var pendingServerPort: Int = 443
     private var pendingProtocol: String = "ws"
     private var pendingUuid: String? = null
+    private var pendingPath: String = "/"
+    private var pendingUseTls: Boolean = true
+    private var pendingAlterId: Int = 0
+    private var pendingSecurity: String = "auto"
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -71,6 +75,13 @@ class MainActivity : FlutterActivity() {
                     updateNotificationTime(remaining)
                     result.success(null)
                 }
+                "updateNotificationStats" -> {
+                    val downloadSpeed = call.argument<String>("download_speed") ?: "0 KB/s"
+                    val uploadSpeed = call.argument<String>("upload_speed") ?: "0 KB/s"
+                    val ping = call.argument<String>("ping") ?: "0ms"
+                    updateNotificationStats(downloadSpeed, uploadSpeed, ping)
+                    result.success(null)
+                }
                 "updateShowTimer" -> {
                     val timerVisible = call.argument<Boolean>("show_timer") ?: true
                     updateShowTimer(timerVisible)
@@ -95,6 +106,16 @@ class MainActivity : FlutterActivity() {
                     val serverPort = call.argument<Int>("server_port") ?: 443
                     val protocol = call.argument<String>("protocol") ?: "ws"
                     val uuid = call.argument<String>("uuid") ?: ""
+                    val path = call.argument<String>("path") ?: "/"
+                    val useTls = call.argument<Boolean>("use_tls") ?: true
+                    val alterId = call.argument<Int>("alter_id") ?: 0
+                    val security = call.argument<String>("security") ?: "auto"
+                    
+                    // Store for later use
+                    pendingPath = path
+                    pendingUseTls = useTls
+                    pendingAlterId = alterId
+                    pendingSecurity = security
                     
                     connectVpn(serverAddress, serverPort, protocol, uuid, result)
                 }
@@ -103,7 +124,7 @@ class MainActivity : FlutterActivity() {
                     result.success(mapOf("success" to true))
                 }
                 "isVpnConnected" -> {
-                    result.success(BvpnVpnService.isRunning)
+                    result.success(SingBoxVpnService.isRunning)
                 }
                 "hasVpnPermission" -> {
                     val intent = VpnService.prepare(this)
@@ -148,12 +169,16 @@ class MainActivity : FlutterActivity() {
     }
     
     private fun startVpnService(serverAddress: String, serverPort: Int, protocol: String, uuid: String) {
-        val serviceIntent = Intent(this, BvpnVpnService::class.java).apply {
+        val serviceIntent = Intent(this, SingBoxVpnService::class.java).apply {
             action = "CONNECT"
             putExtra("server_address", serverAddress)
             putExtra("server_port", serverPort)
             putExtra("protocol", protocol)
             putExtra("uuid", uuid)
+            putExtra("path", pendingPath ?: "/")
+            putExtra("use_tls", pendingUseTls)
+            putExtra("alter_id", pendingAlterId)
+            putExtra("security", pendingSecurity ?: "auto")
         }
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -165,7 +190,7 @@ class MainActivity : FlutterActivity() {
     
     private fun disconnectVpn() {
         Log.d("MainActivity", "Disconnecting VPN")
-        val serviceIntent = Intent(this, BvpnVpnService::class.java).apply {
+        val serviceIntent = Intent(this, SingBoxVpnService::class.java).apply {
             action = "DISCONNECT"
         }
         startService(serviceIntent)
@@ -277,6 +302,19 @@ class MainActivity : FlutterActivity() {
         }, 0, 1000)
     }
 
+    private var currentDownloadSpeed = "0 KB/s"
+    private var currentUploadSpeed = "0 KB/s"
+    private var currentPing = "0ms"
+
+    private fun updateNotificationStats(download: String, upload: String, ping: String) {
+        currentDownloadSpeed = download
+        currentUploadSpeed = upload
+        currentPing = ping
+        if (isRunning) {
+            updateNotification()
+        }
+    }
+
     private fun updateNotification() {
         if (!hasNotificationPermission()) return
         
@@ -334,11 +372,9 @@ class MainActivity : FlutterActivity() {
                 }
             }
             
-            val downSpeed = (1..50).random()
-            val upSpeed = (1..20).random()
-            notificationLayout.setTextViewText(R.id.tv_download, "$downSpeed MB/s")
-            notificationLayout.setTextViewText(R.id.tv_upload, "$upSpeed MB/s")
-            notificationLayout.setTextViewText(R.id.tv_ping, "${(20..150).random()}ms")
+            notificationLayout.setTextViewText(R.id.tv_download, currentDownloadSpeed)
+            notificationLayout.setTextViewText(R.id.tv_upload, currentUploadSpeed)
+            notificationLayout.setTextViewText(R.id.tv_ping, currentPing)
 
             val intent = Intent(this, MainActivity::class.java)
             val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)

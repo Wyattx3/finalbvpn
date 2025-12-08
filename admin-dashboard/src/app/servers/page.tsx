@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Search, Signal, Power, Edit, Trash2, X, Save, Copy, RefreshCw, Activity } from "lucide-react";
+import { Plus, Search, Signal, Power, Edit, Trash2, X, Save, Copy, RefreshCw, Activity, Zap } from "lucide-react";
+import { useRealtimeServers, V2RayServer } from "@/hooks/useRealtimeServers";
 
 // Helper function to format bytes
 const formatBytes = (bytes: number): string => {
@@ -12,28 +13,8 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 };
 
-interface V2RayServer {
-  id: string;
-  name: string;
-  flag: string;
-  address: string;
-  port: number;
-  uuid: string;
-  alterId: number;
-  security: "auto" | "none" | "aes-128-gcm" | "chacha20-poly1305";
-  network: "tcp" | "ws" | "grpc" | "h2";
-  path: string;
-  tls: boolean;
-  country: string;
-  load: number;
-  status: "online" | "offline" | "maintenance";
-  bandwidthUsed?: number;
-  totalConnections?: number;
-  tcpPort?: number;
-  udpPort?: number;
-}
-
-// Predefined Country List
+// V2RayServer interface removed as it is imported from hook
+// Helper function to format bytes
 const countryList = [
   { name: "Singapore", flag: "🇸🇬" },
   { name: "Japan", flag: "🇯🇵" },
@@ -54,31 +35,18 @@ const countryList = [
 ];
 
 export default function ServersPage() {
+  // 🔴 REAL-TIME: Use Firebase real-time listener hook
+  const { servers: realtimeServers, isLoading, error } = useRealtimeServers();
   const [servers, setServers] = useState<V2RayServer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Sync realtime servers to local state for searching/filtering
+  useEffect(() => {
+    setServers(realtimeServers);
+  }, [realtimeServers]);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<V2RayServer | null>(null);
-
-  // Fetch servers from Firebase
-  const fetchServers = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/servers');
-      const data = await response.json();
-      if (data.success) {
-        setServers(data.servers);
-      }
-    } catch (error) {
-      console.error('Failed to fetch servers:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchServers();
-  }, [fetchServers]);
 
   // Form State
   const [formData, setFormData] = useState<Partial<V2RayServer>>({
@@ -98,6 +66,7 @@ export default function ServersPage() {
   });
 
   const handleOpenModal = (server?: V2RayServer) => {
+    setSaveError(null); // Clear any previous error
     if (server) {
       setEditingServer(server);
       setFormData(server);
@@ -125,6 +94,7 @@ export default function ServersPage() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingServer(null);
+    setSaveError(null);
   };
 
   const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -138,7 +108,27 @@ export default function ServersPage() {
     }
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const handleSave = async () => {
+    // Validation
+    if (!formData.name?.trim()) {
+      setSaveError('Node name is required');
+      return;
+    }
+    if (!formData.address?.trim()) {
+      setSaveError('Server address is required');
+      return;
+    }
+    if (!formData.uuid?.trim()) {
+      setSaveError('UUID is required');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+
     try {
       if (editingServer) {
         // Update existing
@@ -148,12 +138,27 @@ export default function ServersPage() {
           body: JSON.stringify({
             action: 'update',
             serverId: editingServer.id,
-            ...formData,
+            name: formData.name,
+            flag: formData.flag,
+            address: formData.address,
+            country: formData.country,
+            port: formData.port || 443,
+            uuid: formData.uuid,
+            alterId: formData.alterId || 0,
+            security: formData.security || 'auto',
+            network: formData.network || 'ws',
+            path: formData.path || '/',
+            tls: formData.tls ?? true,
+            status: formData.status || 'online',
           }),
         });
         const data = await response.json();
         if (data.success) {
-          setServers(servers.map(s => s.id === editingServer.id ? { ...s, ...formData } as V2RayServer : s));
+          console.log('✅ Server updated successfully');
+          handleCloseModal();
+          // Real-time hook will auto-update
+        } else {
+          setSaveError(data.error || 'Failed to update server');
         }
       } else {
         // Add new
@@ -162,24 +167,38 @@ export default function ServersPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'add',
-            ...formData,
+            name: formData.name,
+            flag: formData.flag,
+            address: formData.address,
+            country: formData.country,
+            port: formData.port || 443,
+            uuid: formData.uuid,
+            alterId: formData.alterId || 0,
+            security: formData.security || 'auto',
+            network: formData.network || 'ws',
+            path: formData.path || '/',
+            tls: formData.tls ?? true,
+            status: formData.status || 'online',
             load: 0,
+            bandwidthUsed: 0,
+            totalConnections: 0,
           }),
         });
         const data = await response.json();
         if (data.success) {
-          const newServer = {
-            ...formData,
-            id: data.serverId,
-            load: 0,
-          } as V2RayServer;
-          setServers([...servers, newServer]);
+          console.log('✅ Server added successfully:', data.serverId);
+          handleCloseModal();
+          // Real-time hook will auto-update
+        } else {
+          setSaveError(data.error || 'Failed to add server');
         }
       }
     } catch (error) {
       console.error('Failed to save server:', error);
+      setSaveError('Network error - please try again');
+    } finally {
+      setIsSaving(false);
     }
-    handleCloseModal();
   };
 
   const handleDelete = async (id: string) => {
@@ -241,6 +260,17 @@ export default function ServersPage() {
           <h1 className="text-2xl font-bold tracking-tight dark:text-white">V2Ray Servers</h1>
           <p className="text-gray-500 dark:text-gray-400">Manage your V2Ray VPN nodes</p>
         </div>
+        
+        {/* Real-time indicator */}
+        <div className="flex items-center gap-2 rounded-full bg-green-100 px-3 py-1.5 text-sm font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+          </span>
+          <Zap className="h-3.5 w-3.5" />
+          Real-time
+        </div>
+
         <button 
           onClick={() => handleOpenModal()}
           className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -532,19 +562,37 @@ export default function ServersPage() {
               </div>
             </div>
 
+            {/* Error Message */}
+            {saveError && (
+              <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                ⚠️ {saveError}
+              </div>
+            )}
+
             <div className="mt-5 flex justify-end gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
               <button
                 onClick={handleCloseModal}
-                className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                disabled={isSaving}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
-                className="flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                disabled={isSaving}
+                className="flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="h-4 w-4" />
-                Save Node
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save Node
+                  </>
+                )}
               </button>
             </div>
           </div>

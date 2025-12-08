@@ -26,11 +26,16 @@ android {
         applicationId = "com.example.vpn_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion // Firebase requires minSdk 21+, we use 23 for better compatibility
+        minSdk = 24 // Required for VPN and proper network APIs
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+        
+        // For native libs
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
     }
 
     buildTypes {
@@ -40,6 +45,29 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+    
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+}
+
+dependencies {
+    // WireGuard tunnel library for production VPN
+    implementation("com.wireguard.android:tunnel:1.0.20230706")
+    
+    // OkHttp for network operations
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    
+    // Coroutines for async operations
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    
+    // JSON parsing
+    implementation("com.google.code.gson:gson:2.10.1")
+    
+    // BouncyCastle for crypto (WireGuard key generation)
+    implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 }
 
 flutter {
