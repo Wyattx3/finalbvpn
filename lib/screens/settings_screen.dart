@@ -6,6 +6,7 @@ import '../user_manager.dart';
 import '../theme_notifier.dart';
 import '../services/sdui_service.dart';
 import '../services/firebase_service.dart';
+import '../services/localization_service.dart';
 import '../utils/message_dialog.dart';
 import 'split_tunneling_screen.dart';
 import 'vpn_protocol_screen.dart';
@@ -26,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final UserManager _userManager = UserManager();
   final SduiService _sduiService = SduiService();
   final FirebaseService _firebaseService = FirebaseService();
+  final LocalizationService _l = LocalizationService();
   
   bool enableDebugLog = false;
   bool pushSetting = true;
@@ -111,7 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showShareDialog() {
-    final shareText = _config['share_text'] ?? 'Check out Suf Fhoke VPN - Secure, Fast & Private VPN!\n\nDownload now: https://play.google.com/store/apps/details?id=com.example.vpn_app';
+    final shareText = _config['share_text'] ?? 'Check out Suk Fhyoke VPN - Secure, Fast & Private VPN!\n\nDownload now: https://play.google.com/store/apps/details?id=com.sukfhyoke.vpn';
     
     showModalBottomSheet(
       context: context,
@@ -127,7 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Share Suf Fhoke VPN',
+                  'Share Suk Fhyoke VPN',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 20),
@@ -414,6 +416,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final accountId = _deviceId;
     final version = _config['version'] ?? 'V1.0.8 (latest)';
 
+    // Listen to language changes to rebuild UI with translations
+    return ValueListenableBuilder<String>(
+      valueListenable: _userManager.currentLanguage,
+      builder: (context, currentLang, _) {
+        debugPrint('🌐 Settings rebuilding with language: $currentLang');
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeNotifier,
       builder: (context, currentThemeMode, child) {
@@ -437,7 +444,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           child: Scaffold(
             appBar: AppBar(
-              title: Text(_config['title'] ?? 'Settings'),
+              title: Text(_sduiService.getText(_config['title'], 'Settings')),
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back_ios),
                 onPressed: () => Navigator.pop(context),
@@ -582,21 +589,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 const SizedBox(height: 20),
                 _buildSectionHeader('APP Settings'),
-                _buildSettingItem(
+                ValueListenableBuilder<String>(
+                  valueListenable: _userManager.currentLanguage,
+                  builder: (context, currentLang, _) {
+                    return _buildSettingItem(
                   icon: Icons.language,
-                  title: 'Language',
-                  trailing: const Row(
+                      title: _l.tr('language'),
+                      trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('English', style: TextStyle(color: Colors.grey)),
-                      SizedBox(width: 8),
-                      Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                          Text(currentLang, style: const TextStyle(color: Colors.grey)),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                     ],
                   ),
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => const LanguageScreen()),
+                        );
+                      },
                     );
                   },
                 ),
@@ -765,6 +777,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     );
+      }  // Close language ValueListenableBuilder builder
+    );  // Close language ValueListenableBuilder
   }
 
   Widget _buildSectionHeader(String title) {

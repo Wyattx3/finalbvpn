@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/sdui_service.dart';
+import '../services/localization_service.dart';
 import '../user_manager.dart';
 
 class VpnProtocolScreen extends StatefulWidget {
@@ -12,6 +13,7 @@ class VpnProtocolScreen extends StatefulWidget {
 class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
   final SduiService _sduiService = SduiService();
   final UserManager _userManager = UserManager();
+  final LocalizationService _l = LocalizationService();
   
   // 0: Auto, 1: TCP, 2: UDP
   int _selectedOption = 0;
@@ -77,7 +79,7 @@ class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_config['title'] ?? 'VPN Protocol'),
+        title: Text(_sduiService.getText(_config['title'], _l.tr('vpn_protocol'))),
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
@@ -92,8 +94,8 @@ class _VpnProtocolScreenState extends State<VpnProtocolScreen> {
               padding: const EdgeInsets.only(bottom: 12),
               child: _buildOption(
                 index: protocol['index'] ?? 0,
-                title: protocol['title'] ?? '',
-                description: protocol['description'],
+                title: _sduiService.getText(protocol['title'], ''),
+                description: _sduiService.getText(protocol['description'], ''),
               ),
             );
           }).toList(),

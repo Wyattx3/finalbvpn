@@ -34,7 +34,7 @@ export default function Sidebar() {
   return (
     <div className="fixed top-0 left-0 z-40 flex h-screen w-64 flex-col bg-gray-900 text-white dark:border-r dark:border-gray-800">
       <div className="flex h-16 shrink-0 items-center justify-center border-b border-gray-800">
-        <h1 className="text-xl font-bold">BVPN Admin</h1>
+        <h1 className="text-xl font-bold">Suk Fhyoke Admin</h1>
       </div>
       
       <nav className="flex-1 overflow-y-auto px-4 py-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">

@@ -11,11 +11,18 @@ import '../user_manager.dart';
 import '../services/sdui_service.dart';
 import '../services/firebase_service.dart';
 import '../services/vpn_speed_service.dart';
+import '../services/localization_service.dart';
 import '../utils/message_dialog.dart';
 import '../utils/review_utils.dart';
 import 'dynamic_popup_screen.dart';
 import '../utils/network_utils.dart';
 import '../utils/v2ray_config.dart';
+import '../widgets/vpn_water_button.dart';
+import '../widgets/japanese_wave_background.dart';
+import '../widgets/zen_coin_icon.dart';
+import '../widgets/gift_box_icon.dart';
+import '../widgets/country_flag_icon.dart';
+import '../widgets/server_signal_indicator.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
 import 'dart:async';
 import 'dart:ui';
@@ -33,6 +40,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _connectionCancelled = false;
   String currentLocation = 'Loading...';
   String currentFlag = '🌍';
+  String currentCountryCode = 'US'; // Default country code for flag icon
+  int serverTotalConnections = 0; // For signal indicator
   
   late final FlutterV2ray _flutterV2ray;
   
@@ -40,11 +49,15 @@ class _HomeScreenState extends State<HomeScreen> {
   final SduiService _sduiService = SduiService();
   final FirebaseService _firebaseService = FirebaseService();
   final VpnSpeedService _speedService = VpnSpeedService();
-  static const platform = MethodChannel('com.example.vpn_app/notification');
-  // static const vpnPlatform = MethodChannel('com.example.vpn_app/vpn'); // Replaced by flutter_v2ray
+  final LocalizationService _l = LocalizationService();
+  static const platform = MethodChannel('com.sukfhyoke.vpn/notification');
+  // static const vpnPlatform = MethodChannel('com.sukfhyoke.vpn/vpn'); // Replaced by flutter_v2ray
   
   // Current selected server
   Map<String, dynamic>? _selectedServer;
+  
+  // Last successfully connected server (for Recent Location feature)
+  Map<String, dynamic>? _lastConnectedServer;
 
   // SDUI Config
   Map<String, dynamic> _config = {};
@@ -135,6 +148,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _stopNotification();
       }
     };
+    
+    // Recent location is now loaded in _loadFirebaseData after servers are fetched
   }
   
   // Load servers and balance from Firebase
@@ -146,17 +161,51 @@ class _HomeScreenState extends State<HomeScreen> {
       final servers = await _firebaseService.getServers();
       
       if (mounted && servers.isNotEmpty) {
-        final firstServer = servers.first;
         setState(() {
           _servers = servers;
-          _selectedServer = firstServer;
-          currentLocation = '${firstServer['country']} - ${firstServer['name']}';
-          currentFlag = firstServer['flag'] ?? '🌍';
         });
-        print('✅ Loaded ${servers.length} servers. Default: $currentLocation');
+        
+        // First, try to load recent location
+        await _userManager.loadRecentLocation();
+        final recentLocation = _userManager.recentLocation.value;
+        
+        Map<String, dynamic>? serverToSelect;
+        
+        // If we have a recent location, try to find it in the server list
+        if (recentLocation != null && recentLocation['id'] != null) {
+          final recentId = recentLocation['id'];
+          try {
+            serverToSelect = servers.firstWhere(
+              (s) => s['id'] == recentId,
+              orElse: () => <String, dynamic>{},
+            );
+            if (serverToSelect.isEmpty) {
+              serverToSelect = null; // Not found, will fallback to first
+              print('⚠️ Recent server not found in list, using first server');
+            } else {
+              print('✅ Found recent server: ${serverToSelect['name']}');
+            }
+          } catch (e) {
+            serverToSelect = null;
+          }
+        }
+        
+        // Fallback to first server if no recent or not found
+        serverToSelect ??= servers.first;
+        
+        if (mounted) {
+          setState(() {
+            _selectedServer = serverToSelect;
+            currentLocation = '${serverToSelect!['country']} - ${serverToSelect['name']}';
+            currentFlag = serverToSelect['flag'] ?? '🌍';
+            currentCountryCode = serverToSelect['countryCode'] ?? 'US';
+            serverTotalConnections = (serverToSelect['totalConnections'] as num?)?.toInt() ?? 0;
+        });
+        }
+        print('✅ Loaded ${servers.length} servers. Selected: $currentLocation');
         
         // Measure ping for the selected server
-        final address = firstServer['address'] as String?;
+        final address = serverToSelect['address'] as String?;
         if (address != null) {
           _speedService.updatePingForServer(address);
         }
@@ -165,6 +214,8 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           currentLocation = 'No servers available';
           currentFlag = '⚠️';
+          currentCountryCode = 'XX'; // Invalid code will show fallback
+          serverTotalConnections = 0;
         });
         print('⚠️ No servers found in Firebase');
       }
@@ -197,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _lastPopupConfigHash = '';
   
   // Current app version (should match pubspec.yaml)
-  static const String _currentAppVersion = '1.0.1';
+  static const String _currentAppVersion = '1.0.0';
   
   // Compare version strings (returns true if required > current)
   bool _isVersionNewer(String required, String current) {
@@ -265,9 +316,10 @@ class _HomeScreenState extends State<HomeScreen> {
           debugPrint('📢 lastHash: $_lastPopupConfigHash');
           debugPrint('📢 =====================================');
           
-          // For update popup - always show until version matches (regardless of dismiss setting)
+          // For update popup - ALWAYS force until version matches (user cannot dismiss)
           bool isUpdatePopup = popupType == 'update' && shouldShowForVersion;
-          bool isForceUpdate = isUpdatePopup && config['is_dismissible'] == false;
+          // FORCE update - user MUST update the app, no dismiss allowed
+          bool isForceUpdate = isUpdatePopup; // Always force when update is needed
           
           // Show popup if:
           // 1. Enabled AND version needs update (for update popups)
@@ -278,6 +330,12 @@ class _HomeScreenState extends State<HomeScreen> {
           );
           
           debugPrint('📢 shouldShow=$shouldShow, isUpdatePopup=$isUpdatePopup, isForceUpdate=$isForceUpdate');
+          
+          // Auto-disconnect VPN if force update required
+          if (isForceUpdate && (isConnected || isConnecting)) {
+            debugPrint('📢 Force update required - auto-disconnecting VPN...');
+            _autoDisconnectVpn();
+          }
           
           if (shouldShow) {
             // For update popups, never update hash so it keeps showing
@@ -295,6 +353,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Add version check flag to config so _handleAction knows if update is really needed
                 final popupConfig = Map<String, dynamic>.from(config);
                 popupConfig['_needs_update'] = shouldShowForVersion;
+                
+                // FORCE UPDATE: Override settings when update is required
+                if (isForceUpdate) {
+                  popupConfig['is_dismissible'] = false; // Cannot dismiss
+                  popupConfig['display_type'] = 'fullscreen'; // Force fullscreen
+                  debugPrint('📢 🚨 FORCE UPDATE MODE - User must update!');
+                }
+                
                 showDynamicPopup(context, popupConfig);
               }
             });
@@ -397,6 +463,12 @@ class _HomeScreenState extends State<HomeScreen> {
           final bool isEnabled = config['enabled'] == true;
           
           debugPrint('🔧 Maintenance mode: $isEnabled');
+          
+          // Auto-disconnect VPN if maintenance mode is enabled
+          if (isEnabled && isConnected) {
+            debugPrint('🔧 Maintenance mode enabled - auto-disconnecting VPN...');
+            _autoDisconnectVpn();
+          }
           
           setState(() {
             _maintenanceConfig = config;
@@ -538,6 +610,8 @@ class _HomeScreenState extends State<HomeScreen> {
       await _speedService.stopSpeedMonitoring();
       debugPrint('📱 Speed monitoring stopped, connection count decremented');
       
+      // NOTE: Recent location is saved when SWITCHING to a new server, not on disconnect
+      
       // Update device status back to 'online' (VPN disconnected but app still open)
       await _firebaseService.updateDeviceStatus('online');
       debugPrint('📱 Device status updated to online (VPN disconnected)');
@@ -581,16 +655,73 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// Auto-disconnect VPN when ban/maintenance/update required
+  Future<void> _autoDisconnectVpn() async {
+    if (!isConnected && !isConnecting) return;
+    
+    debugPrint('🔌 Auto-disconnecting VPN...');
+    
+    _userManager.stopTimer();
+    
+    // Stop speed monitoring
+    await _speedService.stopSpeedMonitoring();
+    
+    // Update device status
+    await _firebaseService.updateDeviceStatus('online');
+    
+    // Disconnect VPN
+    try {
+      await _flutterV2ray.stopV2Ray();
+      debugPrint('✅ VPN auto-disconnected');
+    } catch (e) {
+      debugPrint('❌ Error auto-disconnecting VPN: $e');
+    }
+    
+    if (mounted) {
+      setState(() {
+        isConnected = false;
+        isConnecting = false;
+      });
+    }
+    
+    _stopNotification();
+  }
+
   void _startVpnConnection() async {
     _connectionCancelled = false;
     
-    // Check server status before connecting
-    final serverStatus = _selectedServer?['status'] as String? ?? 'online';
+    // Save the PREVIOUS connected server as recent BEFORE connecting to a new one
+    // Only save if: 1) there was a previous connection, 2) it's a different server
+    if (_lastConnectedServer != null && 
+        _selectedServer != null && 
+        _lastConnectedServer!['id'] != _selectedServer!['id']) {
+      _userManager.saveRecentLocation(_lastConnectedServer!);
+      debugPrint('📍 Saved ${_lastConnectedServer!['name']} as recent (switching to new server)');
+    }
+    
+    // REAL-TIME check server status from Firebase before connecting
+    final serverId = _selectedServer?['id'] as String?;
+    if (serverId == null) {
+      if (mounted) {
+        showMessageDialog(
+          context,
+          message: 'ကျေးဇူးပြု၍ server တစ်ခုကို ရွေးချယ်ပါ',
+          type: MessageType.error,
+          title: 'Server မရွေးရသေးပါ',
+        );
+      }
+      return;
+    }
+    
+    // Check server status in real-time from Firebase
+    final serverStatus = await _firebaseService.getServerStatus(serverId);
+    debugPrint('🔍 Server status check: $serverId -> $serverStatus');
+    
     if (serverStatus == 'maintenance') {
       if (mounted) {
         showMessageDialog(
           context,
-          message: 'This server is under maintenance. Please select another server.',
+          message: 'ဤ server သည် maintenance လုပ်နေပါသည်။ တခြား server ကို ရွေးချယ်ပါ။',
           type: MessageType.warning,
           title: 'Server Maintenance',
         );
@@ -601,7 +732,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         showMessageDialog(
           context,
-          message: 'This server is currently offline. Please select another server.',
+          message: 'ဤ server သည် offline ဖြစ်နေပါသည်။ တခြား server ကို ရွေးချယ်ပါ။',
           type: MessageType.error,
           title: 'Server Offline',
         );
@@ -647,14 +778,20 @@ class _HomeScreenState extends State<HomeScreen> {
           network: networkType,
           path: path,
           tls: useTls,
-          remark: _selectedServer?['name'] ?? 'BVPN',
+          remark: _selectedServer?['name'] ?? 'Suk Fhyoke',
         );
+        
+        // Get blocked apps for split tunneling
+        final blockedApps = _userManager.getBlockedApps();
+        if (blockedApps != null && blockedApps.isNotEmpty) {
+          debugPrint('🔌 Split tunneling: blocking ${blockedApps.length} apps from VPN');
+        }
         
         // Start V2Ray
         await _flutterV2ray.startV2Ray(
-          remark: _selectedServer?['name'] ?? 'BVPN',
+          remark: _selectedServer?['name'] ?? 'Suk Fhyoke',
           config: config,
-          blockedApps: null,
+          blockedApps: blockedApps,
         );
         
         // Note: isConnected state will be updated by onStatusChanged listener
@@ -667,6 +804,10 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted && !_connectionCancelled) {
           _userManager.startTimer();
           _startNotification();
+          
+          // Track this as the last connected server (for Recent Location feature)
+          _lastConnectedServer = _selectedServer;
+          debugPrint('📍 Tracking ${_selectedServer?['name']} as last connected server');
           
           // Update device status to 'vpn_connected' (online with VPN)
           await _firebaseService.updateDeviceStatus('vpn_connected');
@@ -745,7 +886,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Watch a short ad to get $timeBonusText of VPN time and earn $rewardPerAd MMK.',
+                'Watch a short ad to get $timeBonusText of VPN time and earn $rewardPerAd Points.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.grey),
               ),
@@ -822,7 +963,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // Show reward dialog - only add points when user taps OK
         showMessageDialog(
           context,
-          message: '+$timeBonusText Added, +$rewardPerAd MMK Earned',
+          message: '+$timeBonusText Added, +$rewardPerAd Points Earned',
           type: MessageType.success,
           title: 'Reward Earned!',
           onOkPressed: () {
@@ -852,10 +993,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (result != null && result is Map) {
+      final server = result['server'] as Map<String, dynamic>?;
       setState(() {
         currentLocation = result['location'];
         currentFlag = result['flag'] ?? '🏳️';
-        _selectedServer = result['server'] as Map<String, dynamic>?;
+        currentCountryCode = result['countryCode'] ?? server?['countryCode'] ?? 'US';
+        serverTotalConnections = (server?['totalConnections'] as num?)?.toInt() ?? 0;
+        _selectedServer = server;
       });
       
       // Update ping for new server
@@ -900,29 +1044,50 @@ class _HomeScreenState extends State<HomeScreen> {
     final timerConfig = _config['timer_section'] ?? {};
     final bool showTimer = timerConfig['show_timer'] ?? true;
 
+    return ValueListenableBuilder<String>(
+      valueListenable: _userManager.currentLanguage,
+      builder: (context, currentLang, _) {
     return Scaffold(
       backgroundColor: backgroundColor,
-      appBar: AppBar(
-        backgroundColor: backgroundColor,
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark, // Always dark icons
+          statusBarBrightness: Brightness.light,    // For iOS
+        ),
+        child: Stack(
+          children: [
+          if (!isDark) // Only show waves in light mode or make them subtle in dark mode
+             const Positioned.fill(child: JapaneseWaveBackground()),
+             
+          Column(
+            children: [
+              // Add top padding to account for status bar since we are using Stack
+              SizedBox(height: MediaQuery.of(context).padding.top),
+              
+              AppBar(
+                backgroundColor: Colors.transparent, // Make transparent to see waves
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.monetization_on_outlined, color: isDark ? const Color(0xFFB388FF) : const Color(0xFF7E57C2)),
-          tooltip: 'Earn Money',
-          onPressed: () {
+                leading: GestureDetector(
+                  onTap: () {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const EarnMoneyScreen()),
             );
           },
+                  child: const Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: ZenCoinIcon(size: 40),
+                  ),
         ),
         title: ValueListenableBuilder<int>(
           valueListenable: _userManager.splitTunnelingMode,
           builder: (context, splitMode, child) {
             final titleColor = isConnecting ? Colors.orange : (isConnected ? Colors.green : (isDark ? Colors.white : Colors.black));
             
-            String titleText = appBarConfig['title_disconnected'] ?? 'Not Connected';
-            if (isConnecting) titleText = appBarConfig['title_connecting'] ?? 'Connecting...';
-            if (isConnected) titleText = appBarConfig['title_connected'] ?? 'Connected';
+                    String titleText = _sduiService.getText(appBarConfig['title_disconnected'], 'Not Connected');
+                    if (isConnecting) titleText = _sduiService.getText(appBarConfig['title_connecting'], 'Connecting...');
+                    if (isConnected) titleText = _sduiService.getText(appBarConfig['title_connected'], 'Connected');
 
             return Row(
               mainAxisSize: MainAxisSize.min,
@@ -949,15 +1114,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: Icon(Icons.card_giftcard, color: isDark ? const Color(0xFFB388FF) : const Color(0xFF7E57C2)),
-            tooltip: 'Withdraw',
-            onPressed: () {
+                  GestureDetector(
+                    onTap: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const RewardsScreen()),
               );
             },
+                    child: const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: GiftBoxIcon(size: 40),
+                    ),
           ),
           IconButton(
             icon: Icon(CupertinoIcons.settings, color: textColor),
@@ -970,7 +1137,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: LayoutBuilder(
+              Expanded(
+                child: LayoutBuilder(
         builder: (context, constraints) {
           // Responsive calculations
           final double screenHeight = constraints.maxHeight;
@@ -1031,54 +1199,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Power Button
-                          GestureDetector(
+                                    VPNWaterButton(
+                                      size: buttonSize,
+                                      state: isConnecting 
+                                          ? VPNState.connecting 
+                                          : (isConnected ? VPNState.connected : VPNState.idle),
                             onTap: _toggleConnection,
-                            child: Container(
-                              width: buttonSize,
-                              height: buttonSize,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: isConnected 
-                                  ? Colors.green.withOpacity(0.1) 
-                                  : (isConnecting ? Colors.orange.withOpacity(0.1) : (isDark ? Colors.grey.withOpacity(0.1) : Colors.grey.withOpacity(0.1))),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: isConnected 
-                                      ? Colors.green.withOpacity(0.2) 
-                                      : (isConnecting ? Colors.orange.withOpacity(0.2) : (isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.2))),
-                                  blurRadius: 20,
-                                  spreadRadius: 10,
-                                ),
-                              ],
-                            ),
-                            child: Center(
-                              child: Container(
-                                width: innerButtonSize,
-                                height: innerButtonSize,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 5),
-                                    ),
-                                  ],
-                                ),
-                                child: isConnecting 
-                                    ? const Padding(
-                                        padding: EdgeInsets.all(30.0),
-                                        child: CircularProgressIndicator(strokeWidth: 3, color: Colors.orange),
-                                      )
-                                    : Icon(
-                                        CupertinoIcons.power,
-                                        size: innerButtonSize * 0.4,
-                                        color: isConnected ? Colors.green : (isDark ? Colors.grey.shade400 : Colors.grey),
-                                      ),
-                              ),
-                            ),
-                          ),
                         ),
                         
                           const SizedBox(height: 20), // Fixed spacing
@@ -1086,8 +1212,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           // Status Text
                           Text(
                             isConnecting 
-                                ? (buttonConfig['status_text_connecting'] ?? 'Connecting...') 
-                                : (isConnected ? (buttonConfig['status_text_connected'] ?? 'VPN is On') : (buttonConfig['status_text_disconnected'] ?? 'Tap to Connect')),
+                                          ? _sduiService.getText(buttonConfig['status_text_connecting'], 'Connecting...') 
+                                          : (isConnected ? _sduiService.getText(buttonConfig['status_text_connected'], 'VPN is On') : _sduiService.getText(buttonConfig['status_text_disconnected'], 'Tap to Connect')),
                             style: TextStyle(
                               color: isConnecting ? Colors.orange : (isConnected ? Colors.green : subTextColor),
                               fontWeight: FontWeight.w600,
@@ -1136,15 +1262,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                               child: Row(
                                 children: [
-                                  Container(
-                                    width: 36,
-                                    height: 36,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isDark ? Colors.grey.withOpacity(0.1) : Colors.grey.shade100,
-                                    ),
-                                    child: Text(currentFlag, style: const TextStyle(fontSize: 18)),
+                                            // Country Flag Icon (instead of emoji)
+                                            CountryFlagIcon(
+                                              countryCode: currentCountryCode,
+                                              size: 36,
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -1152,7 +1273,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          cardConfig['label'] ?? 'Selected Location',
+                                                    _sduiService.getText(cardConfig['label'], 'Selected Location'),
                                           style: TextStyle(
                                             fontSize: 11,
                                             color: subTextColor,
@@ -1171,7 +1292,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ],
                                     ),
                                   ),
-                                  Icon(Icons.signal_cellular_alt, size: 18, color: isConnected ? Colors.green : Colors.grey),
+                                            // Server Signal Indicator (colored bars based on load)
+                                            ServerSignalIndicator(
+                                              totalConnections: serverTotalConnections,
+                                              isConnected: isConnected,
+                                              size: 18,
+                                            ),
                                   const SizedBox(width: 8),
                                   if (!isConnected)
                                     Icon(Icons.arrow_forward_ios, size: 14, color: subTextColor),
@@ -1267,57 +1393,111 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                             
                             // Recent Location - Always visible
-                            GestureDetector(
+                                      ValueListenableBuilder<Map<String, dynamic>?>(
+                                        valueListenable: _userManager.recentLocation,
+                                        builder: (context, recent, child) {
+                                          final bool hasRecent = recent != null;
+                                          final String flag = hasRecent ? (recent['flag'] ?? '🌍') : '🏳️';
+                                          final String countryCode = hasRecent ? (recent['countryCode'] ?? 'US') : 'XX';
+                                          final String name = hasRecent ? (recent['name'] ?? 'Unknown') : 'No Recent Location';
+                                          final int recentConnections = hasRecent ? ((recent['totalConnections'] as num?)?.toInt() ?? 0) : 0;
+                                          
+                                          return GestureDetector(
                               behavior: HitTestBehavior.opaque,
-                              onTap: isConnected ? null : () {
+                                            onTap: (isConnected || !hasRecent) ? null : () {
+                                              // Quick connect to recent location logic
+                                              // We need to find this server in our _servers list to select it properly
+                                              // Or we can rely on the saved 'server_data' if we trust it hasn't changed
+                                              
+                                              final savedServerData = recent['server_data'];
+                                              
+                                              // Logic: Try to find server by ID in current _servers list first (to get updated config)
+                                              // If not found, fallback to savedServerData
+                                              // If neither exists, show error
+                                              
+                                              Map<String, dynamic>? targetServer = savedServerData;
+                                              
+                                              // Try to find updated server details from fetched list
+                                              if (recent['id'] != null && _servers.isNotEmpty) {
+                                                try {
+                                                  final updatedServer = _servers.firstWhere(
+                                                    (s) => s['id'] == recent['id'], 
+                                                    orElse: () => <String, dynamic>{}
+                                                  );
+                                                  if (updatedServer.isNotEmpty) {
+                                                    targetServer = updatedServer;
+                                                  }
+                                                } catch (e) {
+                                                  // Ignore find error
+                                                }
+                                              }
+
+                                              if (targetServer != null) {
                                 setState(() {
-                                  currentLocation = 'JP - Tokyo';
-                                  currentFlag = '🇯🇵';
+                                                  _selectedServer = targetServer;
+                                                  currentLocation = recent['name'];
+                                                  currentFlag = recent['flag'];
                                 });
+                                                // Trigger ping check for this new selection
+                                                final address = targetServer!['address'];
+                                                if (address != null) {
+                                                  _speedService.updatePingForServer(address);
+                                                }
+                                              } else {
+                                                showMessageDialog(
+                                                  context,
+                                                  message: 'Server not found or configuration changed.',
+                                                  type: MessageType.error,
+                                                  title: 'Connection Error',
+                                                );
+                                              }
                               },
                               child: Opacity(
-                                opacity: isConnected ? 0.5 : 1.0,
+                                              opacity: (isConnected || !hasRecent) ? 0.5 : 1.0,
                                 child: Row(
                                   children: [
                                     const Icon(Icons.history, size: 14, color: Colors.grey),
                                     const SizedBox(width: 8),
                                     Text(
-                                      cardConfig['recent_label'] ?? 'Recent Location',
+                                                    _sduiService.getText(cardConfig['recent_label'], 'Recent Location'),
                                       style: TextStyle(
                                         color: subTextColor,
                                         fontSize: 12,
                                       ),
                                     ),
                                     const Spacer(),
-                                    Container(
-                                      width: 24,
-                                      height: 24,
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: isDark ? Colors.grey.shade800 : Colors.white,
-                                        border: Border.all(color: Colors.grey.shade300, width: 0.5),
-                                      ),
-                                      child: const Text('🇯🇵', style: TextStyle(fontSize: 12)),
+                                                  // Country Flag Icon (small)
+                                                  CountryFlagIconSmall(
+                                                    countryCode: countryCode,
+                                                    size: 24,
                                     ),
                                     const SizedBox(width: 8),
-                                    Text(
-                                      'JP - Tokyo',
+                                                  Expanded(
+                                                    child: Text(
+                                                      name,
                                       style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w500,
                                         color: textColor,
+                                                      ),
+                                                      overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    Icon(Icons.signal_cellular_alt, size: 14, color: Colors.green.shade400),
-                                    if (!isConnected) ...[
+                                                  // Server Signal Indicator (colored bars)
+                                                  ServerSignalIndicator(
+                                                    totalConnections: recentConnections,
+                                                    size: 14,
+                                                  ),
+                                                  if (!isConnected && hasRecent) ...[
                                       const SizedBox(width: 4),
                                       Icon(Icons.arrow_forward_ios, size: 12, color: subTextColor),
                                     ],
                                   ],
                                 ),
                               ),
+                                          );
+                                        },
                             ),
                           ],
                         ),
@@ -1330,6 +1510,14 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         },
       ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
     );
+      }  // Close ValueListenableBuilder builder
+    );  // Close ValueListenableBuilder
   }
 }

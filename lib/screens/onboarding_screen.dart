@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/sdui_service.dart';
+import '../user_manager.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   final SduiService _sduiService = SduiService();
+  final UserManager _userManager = UserManager();
   
   int _currentPage = 0;
   bool _isLoading = true;
@@ -77,10 +79,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  void _finishOnboarding() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const HomeScreen()),
-    );
+  void _finishOnboarding() async {
+    // Mark onboarding as completed so it won't show again
+    await _userManager.completeOnboarding();
+    debugPrint('✅ Onboarding completed - will not show again');
+    
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    }
   }
 
   @override
@@ -180,7 +188,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildPage(Map<String, dynamic> page) {
-    final String imageSource = page['image'] ?? '';
+    // Handle image - could be String or Map (for safety)
+    final dynamic imageValue = page['image'];
+    final String imageSource = imageValue is String ? imageValue : '';
+    
+    // Get translated text using SduiService (supports multi-language)
+    final String title = _sduiService.getText(page['title'], '');
+    final String description = _sduiService.getText(page['description'], '');
     
     return Stack(
       fit: StackFit.expand,
@@ -197,7 +211,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  page['title'] ?? '',
+                  title,
                   style: const TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.w900,
@@ -209,7 +223,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  page['description'] ?? '',
+                  description,
                   style: const TextStyle(
                     fontSize: 16,
                     color: Colors.black87,

@@ -1,4 +1,4 @@
-// Seed initial data to Firestore for BVPN App
+// Seed initial data to Firestore for Suk Fhyoke VPN App
 const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
@@ -110,7 +110,7 @@ async function seedData() {
   console.log('📝 Seeding sdui_configs...');
   const sduiConfigs = {
     splash: {
-      app_name: 'BVPN',
+      app_name: 'Suk Fhyoke VPN',
       tagline: 'Secure & Fast VPN',
       gradient_colors: ['#7E57C2', '#B39DDB'],
       splash_duration_seconds: 3,

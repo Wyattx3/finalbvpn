@@ -1,4 +1,4 @@
-package com.example.vpn_app
+package com.sukfhyoke.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -272,7 +272,7 @@ class SingBoxVpnService : VpnService() {
     private fun establishVpnInterface(): Boolean {
         try {
             val builder = Builder()
-                .setSession("Suf Fhoke VPN")
+                .setSession("Suk Fhyoke VPN")
                 .setMtu(1500)
                 .addAddress("172.19.0.1", 30)
                 .addRoute("0.0.0.0", 0)
@@ -387,7 +387,7 @@ class SingBoxVpnService : VpnService() {
         )
         
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Suf Fhoke VPN")
+            .setContentTitle("Suk Fhyoke VPN")
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)

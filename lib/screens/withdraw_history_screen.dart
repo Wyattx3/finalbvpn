@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'withdraw_history_details_screen.dart';
 import '../services/firebase_service.dart';
+import '../services/localization_service.dart';
+import '../user_manager.dart';
+import '../widgets/japanese_wave_background.dart';
 
 class WithdrawHistoryScreen extends StatefulWidget {
   const WithdrawHistoryScreen({super.key});
@@ -12,6 +16,8 @@ class WithdrawHistoryScreen extends StatefulWidget {
 
 class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
   final FirebaseService _firebaseService = FirebaseService();
+  final LocalizationService _l = LocalizationService();
+  final UserManager _userManager = UserManager();
   StreamSubscription<List<Map<String, dynamic>>>? _withdrawalSubscription;
   List<Map<String, dynamic>> _withdrawals = [];
   bool _isLoading = true;
@@ -118,79 +124,104 @@ class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
     final bgColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
     final textColor = isDark ? Colors.white : Colors.black;
 
-    return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Withdraw History', style: TextStyle(color: textColor)),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.bolt, color: Colors.green, size: 14),
-                  Text(
-                    'Live',
-                    style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: textColor),
-          onPressed: () => Navigator.pop(context),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _withdrawals.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+      child: Scaffold(
+        backgroundColor: bgColor,
+        body: Stack(
+          children: [
+            if (!isDark)
+              const Positioned.fill(child: JapaneseWaveBackground()),
+              
+            Column(
+              children: [
+                SizedBox(height: MediaQuery.of(context).padding.top), // Handle Status Bar height
+                
+                AppBar(
+                  title: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.history, size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No withdrawal history',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+                      Text(_l.tr('withdraw_history'), style: TextStyle(color: textColor)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (isDark ? Colors.green : const Color(0xFF00796B)).withOpacity(0.2), // Darker Teal for light mode
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: (isDark ? Colors.green : const Color(0xFF00796B)).withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.bolt, color: isDark ? Colors.green : const Color(0xFF00796B), size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Live',
+                              style: TextStyle(color: isDark ? Colors.green : const Color(0xFF00796B), fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: () async {
-                    // Stream auto-updates, but user can pull to refresh
-                    await Future.delayed(const Duration(milliseconds: 500));
-                  },
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _withdrawals.length,
-                    itemBuilder: (context, index) {
-                      final withdrawal = _withdrawals[index];
-                      return _buildHistoryItem(
-                        context,
-                        withdrawal: withdrawal,
-                      );
-                    },
+                  leading: IconButton(
+                    icon: Icon(Icons.arrow_back_ios, color: textColor),
+                    onPressed: () => Navigator.pop(context),
                   ),
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
                 ),
+                
+                Expanded(
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _withdrawals.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.history, size: 64, color: Colors.grey.shade400),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No withdrawal history',
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : RefreshIndicator(
+                              onRefresh: () async {
+                                // Stream auto-updates, but user can pull to refresh
+                                await Future.delayed(const Duration(milliseconds: 500));
+                              },
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: _withdrawals.length,
+                                itemBuilder: (context, index) {
+                                  final withdrawal = _withdrawals[index];
+                                  return _buildHistoryItem(
+                                    context,
+                                    withdrawal: withdrawal,
+                                  );
+                                },
+                              ),
+                            ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildHistoryItem(BuildContext context, {required Map<String, dynamic> withdrawal}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF2D2640) : Colors.white;
+    final cardColor = isDark ? const Color(0xFF2D2640) : Colors.white.withOpacity(0.85); // Transparent white for waves
     final textColor = isDark ? Colors.white : Colors.black;
     
     final status = withdrawal['status'] as String?;
@@ -229,10 +260,12 @@ class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(12),
+          border: isDark ? null : Border.all(color: Colors.white), // Add border for glass effect
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 5,
+              color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),

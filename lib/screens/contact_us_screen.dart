@@ -81,7 +81,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_config['title'] ?? 'Contact Us'),
+        title: Text(_sduiService.getText(_config['title'], 'Contact Us')),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),

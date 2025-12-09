@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/sdui_service.dart';
 
 /// Display type for the dynamic popup
 enum PopupDisplayType {
@@ -107,41 +108,29 @@ void _handleAction(BuildContext context, String? action, String? target, {Map<St
   final String? popupType = config?['popup_type'] as String?;
   final bool isDismissible = config?['is_dismissible'] ?? true;
   final bool needsUpdate = config?['_needs_update'] ?? false; // Version check result from home_screen
+  // FORCE UPDATE: When update is needed, user CANNOT dismiss (regardless of is_dismissible setting)
   final bool isForceUpdate = config != null && 
       popupType == 'update' && 
-      isDismissible == false &&
-      needsUpdate == true; // Only force if version actually needs update
+      needsUpdate == true; // Always force when update is needed!
 
   debugPrint('🔘 Force update check: popup_type=$popupType, is_dismissible=$isDismissible, needsUpdate=$needsUpdate, isForceUpdate=$isForceUpdate');
 
   switch (action) {
     case 'close':
     case 'dismiss':
-      // If it's a forced update popup (is_dismissible = false), don't allow dismiss
+      // If it's a forced update popup, NEVER allow dismiss
       if (isForceUpdate) {
-        debugPrint('🔘 ❌ Dismiss blocked - Force update required! (is_dismissible=false)');
+        debugPrint('🔘 ❌ Dismiss BLOCKED - Update Required! User MUST update the app.');
         // Show a snackbar message instead
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please update the app to continue'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: const Text('အက်ပ်ကို Update လုပ်မှ ဆက်သုံးလို့ရပါမည်'),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
           ),
         );
-        return; // Don't close the popup
-      }
-      
-      // For update popups with dismiss allowed AND version needs update, show again after delay
-      final bool isUpdatePopup = popupType == 'update' && needsUpdate;
-      if (isUpdatePopup) {
-        debugPrint('🔘 ⚠️ Update popup dismissed - will show again in 3 seconds');
-        Navigator.pop(context);
-        // Show popup again after delay
-        Future.delayed(const Duration(seconds: 3), () {
-          if (context.mounted && config != null) {
-            showDynamicPopup(context, config);
-          }
-        });
-        return;
+        return; // Don't close the popup - user MUST update
       }
       
       debugPrint('🔘 ✅ Dismiss allowed - closing popup');
@@ -150,7 +139,7 @@ void _handleAction(BuildContext context, String? action, String? target, {Map<St
     case 'update':
       // Open Play Store for app update
       try {
-        const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.example.vpn_app';
+        const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.sukfhyoke.vpn';
         final Uri url = Uri.parse(playStoreUrl);
         if (await canLaunchUrl(url)) {
           await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -220,8 +209,9 @@ void _handleAction(BuildContext context, String? action, String? target, {Map<St
 /// ============ CENTER POPUP (Dialog) ============
 class _CenterPopup extends StatelessWidget {
   final Map<String, dynamic> config;
+  final SduiService _sduiService = SduiService();
 
-  const _CenterPopup({required this.config});
+  _CenterPopup({required this.config});
 
   @override
   Widget build(BuildContext context) {
@@ -229,6 +219,18 @@ class _CenterPopup extends StatelessWidget {
     final backgroundColor = _parseColor(config['background_color']) ?? _parseColor(style['background_color']) ?? Colors.white;
     final bool isDarkBg = backgroundColor.computeLuminance() < 0.5;
     final bool isDismissible = config['is_dismissible'] ?? true;
+    
+    // Check if this is a force update popup
+    final String? popupType = config['popup_type'] as String?;
+    final bool needsUpdate = config['_needs_update'] ?? false;
+    final bool isForceUpdate = popupType == 'update' && needsUpdate;
+    
+    // For force update, NEVER allow dismiss
+    final bool canDismiss = isDismissible && !isForceUpdate;
+    
+    // Get translated text using SduiService
+    final String? title = config['title'] != null ? _sduiService.getText(config['title']) : null;
+    final String? message = config['message'] != null ? _sduiService.getText(config['message']) : null;
     
     // Check for image (support both 'image' and 'image_url' keys)
     final String? imageUrl = config['image'] as String? ?? config['image_url'] as String?;
@@ -242,9 +244,22 @@ class _CenterPopup extends StatelessWidget {
     debugPrint('🎨 button_text_color raw: ${config['button_text_color']}');
     debugPrint('🖼️ Popup image URL: $imageUrl');
     debugPrint('🖼️ hasImage: $hasImage');
+    debugPrint('🔒 isForceUpdate: $isForceUpdate, canDismiss: $canDismiss');
 
-    return WillPopScope(
-      onWillPop: () async => isDismissible,
+    return PopScope(
+      canPop: canDismiss,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && isForceUpdate) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('အက်ပ်ကို Update လုပ်မှ ဆက်သုံးလို့ရပါမည်'),
+              backgroundColor: Colors.red.shade700,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
       child: Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.all(24),
@@ -300,8 +315,8 @@ class _CenterPopup extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Close button (top right)
-                      if (isDismissible)
+                      // Close button (top right) - HIDDEN for force update
+                      if (canDismiss)
                         Align(
                           alignment: Alignment.topRight,
                           child: IconButton(
@@ -323,9 +338,9 @@ class _CenterPopup extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Title
-                          if (config['title'] != null)
+                          if (title != null && title.isNotEmpty)
                             Text(
-                              config['title'],
+                              title,
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: (style['title_size'] ?? 22).toDouble(),
@@ -333,12 +348,12 @@ class _CenterPopup extends StatelessWidget {
                                 color: _parseColor(config['title_color']) ?? _parseColor(style['title_color']) ?? (hasImage || isDarkBg ? Colors.white : Colors.deepPurple),
                               ),
                             ),
-                          if (config['title'] != null) const SizedBox(height: 12),
+                          if (title != null && title.isNotEmpty) const SizedBox(height: 12),
 
                           // Message
-                          if (config['message'] != null)
+                          if (message != null && message.isNotEmpty)
                             Text(
-                              config['message'],
+                              message,
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: (style['message_size'] ?? 15).toDouble(),
@@ -441,8 +456,9 @@ Widget _buildBackgroundImage(String imageUrl) {
 /// ============ BOTTOM SHEET POPUP ============
 class _BottomSheetPopup extends StatelessWidget {
   final Map<String, dynamic> config;
+  final SduiService _sduiService = SduiService();
 
-  const _BottomSheetPopup({required this.config});
+  _BottomSheetPopup({required this.config});
 
   @override
   Widget build(BuildContext context) {
@@ -450,6 +466,18 @@ class _BottomSheetPopup extends StatelessWidget {
     final backgroundColor = _parseColor(config['background_color']) ?? _parseColor(style['background_color']) ?? Colors.white;
     final bool isDarkBg = backgroundColor.computeLuminance() < 0.5;
     final bool isDismissible = config['is_dismissible'] ?? true;
+    
+    // Check if this is a force update popup
+    final String? popupType = config['popup_type'] as String?;
+    final bool needsUpdate = config['_needs_update'] ?? false;
+    final bool isForceUpdate = popupType == 'update' && needsUpdate;
+    
+    // For force update, NEVER allow dismiss
+    final bool canDismiss = isDismissible && !isForceUpdate;
+    
+    // Get translated text using SduiService
+    final String? title = config['title'] != null ? _sduiService.getText(config['title']) : null;
+    final String? message = config['message'] != null ? _sduiService.getText(config['message']) : null;
     
     // Check for image (support both 'image' and 'image_url' keys)
     final String? imageUrl = config['image'] as String? ?? config['image_url'] as String?;
@@ -460,8 +488,20 @@ class _BottomSheetPopup extends StatelessWidget {
     debugPrint('🎨 BottomSheet message_color: ${config['message_color']}');
     debugPrint('🎨 BottomSheet button_color: ${config['button_color']}');
 
-    return WillPopScope(
-      onWillPop: () async => isDismissible,
+    return PopScope(
+      canPop: canDismiss,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && isForceUpdate) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('အက်ပ်ကို Update လုပ်မှ ဆက်သုံးလို့ရပါမည်'),
+              backgroundColor: Colors.red.shade700,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
       child: Container(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.5, // 50% of screen
@@ -523,8 +563,8 @@ class _BottomSheetPopup extends StatelessWidget {
                         ),
                       ),
 
-                      // Close button (top right)
-                      if (isDismissible)
+                      // Close button (top right) - HIDDEN for force update
+                      if (canDismiss)
                         Align(
                           alignment: Alignment.topRight,
                           child: IconButton(
@@ -545,9 +585,9 @@ class _BottomSheetPopup extends StatelessWidget {
                       child: Column(
                         children: [
                           // Title
-                          if (config['title'] != null)
+                          if (title != null && title.isNotEmpty)
                             Text(
-                              config['title'],
+                              title,
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: (style['title_size'] ?? 22).toDouble(),
@@ -555,12 +595,12 @@ class _BottomSheetPopup extends StatelessWidget {
                                 color: _parseColor(config['title_color']) ?? _parseColor(style['title_color']) ?? (hasImage || isDarkBg ? Colors.white : Colors.deepPurple),
                               ),
                             ),
-                          if (config['title'] != null) const SizedBox(height: 12),
+                          if (title != null && title.isNotEmpty) const SizedBox(height: 12),
 
                           // Message
-                          if (config['message'] != null)
+                          if (message != null && message.isNotEmpty)
                             Text(
-                              config['message'],
+                              message,
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: (style['message_size'] ?? 15).toDouble(),
@@ -591,8 +631,9 @@ class _BottomSheetPopup extends StatelessWidget {
 /// ============ FULL SCREEN POPUP ============
 class _FullScreenPopup extends StatelessWidget {
   final Map<String, dynamic> config;
+  final SduiService _sduiService = SduiService();
 
-  const _FullScreenPopup({required this.config});
+  _FullScreenPopup({required this.config});
 
   @override
   Widget build(BuildContext context) {
@@ -601,12 +642,37 @@ class _FullScreenPopup extends StatelessWidget {
     final bool isDarkBg = backgroundColor.computeLuminance() < 0.5;
     final bool isDismissible = config['is_dismissible'] ?? true;
     
+    // Check if this is a force update popup
+    final String? popupType = config['popup_type'] as String?;
+    final bool needsUpdate = config['_needs_update'] ?? false;
+    final bool isForceUpdate = popupType == 'update' && needsUpdate;
+    
+    // For force update, NEVER allow dismiss
+    final bool canDismiss = isDismissible && !isForceUpdate;
+    
+    // Get translated text using SduiService
+    final String? title = config['title'] != null ? _sduiService.getText(config['title']) : null;
+    final String? message = config['message'] != null ? _sduiService.getText(config['message']) : null;
+    
     // Check for image (support both 'image' and 'image_url' keys)
     final String? imageUrl = config['image'] as String? ?? config['image_url'] as String?;
     final bool hasImage = imageUrl != null && imageUrl.isNotEmpty;
 
-    return WillPopScope(
-      onWillPop: () async => isDismissible,
+    return PopScope(
+      canPop: canDismiss,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && isForceUpdate) {
+          // Show message when user tries to go back
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('အက်ပ်ကို Update လုပ်မှ ဆက်သုံးလို့ရပါမည်'),
+              backgroundColor: Colors.red.shade700,
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle(
           statusBarColor: hasImage ? Colors.transparent : backgroundColor,
@@ -648,8 +714,8 @@ class _FullScreenPopup extends StatelessWidget {
                   height: double.infinity,
                   child: Column(
                     children: [
-                      // Top bar with close button
-                      if (isDismissible)
+                      // Top bar with close button (HIDDEN for force update)
+                      if (canDismiss)
                         Align(
                           alignment: Alignment.topRight,
                           child: Padding(
@@ -664,7 +730,7 @@ class _FullScreenPopup extends StatelessWidget {
                             ),
                           ),
                         ),
-
+                      
                       // Spacer to push content down
                       const Spacer(),
 
@@ -675,9 +741,9 @@ class _FullScreenPopup extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             // Title
-                            if (config['title'] != null)
+                            if (title != null && title.isNotEmpty)
                               Text(
-                                config['title'],
+                                title,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: (style['title_size'] ?? 28).toDouble(),
@@ -685,12 +751,12 @@ class _FullScreenPopup extends StatelessWidget {
                                   color: _parseColor(config['title_color']) ?? _parseColor(style['title_color']) ?? (hasImage || isDarkBg ? Colors.white : Colors.black),
                                 ),
                               ),
-                            if (config['title'] != null) const SizedBox(height: 16),
+                            if (title != null && title.isNotEmpty) const SizedBox(height: 16),
 
                             // Message
-                            if (config['message'] != null)
+                            if (message != null && message.isNotEmpty)
                               Text(
-                                config['message'],
+                                message,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: (style['message_size'] ?? 18).toDouble(),

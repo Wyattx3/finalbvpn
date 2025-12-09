@@ -161,7 +161,7 @@ export default function SduiManagementPage() {
           popup_type: "announcement", // announcement, update, promo
           display_type: "popup",
           title: "Welcome!",
-          message: "Welcome to BVPN",
+          message: "Welcome to Suk Fhyoke VPN",
           image: "",
           buttons: [
             { text: "OK", action: "dismiss" }
@@ -175,7 +175,6 @@ export default function SduiManagementPage() {
         return {
           title: "Account Suspended",
           message: "Your account has been suspended due to violation of our terms of service.",
-          image: "assets/images/banned.png",
           support_button: {
             text: "Contact Support",
             url: "https://t.me/bvpn_support",
@@ -183,7 +182,7 @@ export default function SduiManagementPage() {
           quit_button: {
             text: "Quit App",
           },
-          background_gradient: ["#1A1625", "#2D2640"],
+          show_quit_button: true,
         };
       case "server_maintenance":
         return {
@@ -192,10 +191,7 @@ export default function SduiManagementPage() {
           message: "We're currently performing scheduled maintenance.\nPlease check back soon.",
           estimated_time: "",
           show_progress: true,
-          background_color: "#1a1a2e",
-          title_color: "#ffffff",
-          message_color: "#b0b0b0",
-          image: "",
+          progress_text: "Working on it...",
         };
       case "home":
         return {
@@ -239,7 +235,7 @@ export default function SduiManagementPage() {
         };
       case "splash":
         return {
-          app_name: "BVPN",
+          app_name: "Suk Fhyoke VPN",
           tagline: "Secure & Fast",
           gradient_colors: ["#7E57C2", "#B39DDB"],
           splash_duration_seconds: 3,
@@ -561,6 +557,129 @@ export default function SduiManagementPage() {
   );
 }
 
+// Helper: Extract English/default value from multi-language object
+function getTextValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null) {
+    const obj = value as Record<string, string>;
+    return obj.en || obj.my_unicode || Object.values(obj)[0] || "";
+  }
+  return "";
+}
+
+// Supported Languages
+const LANGUAGES = [
+  { code: "en", name: "English", flag: "🇺🇸" },
+  { code: "my_zawgyi", name: "Myanmar (Zawgyi)", flag: "🇲🇲" },
+  { code: "my_unicode", name: "Myanmar (Unicode)", flag: "🇲🇲" },
+  { code: "ja", name: "Japanese", flag: "🇯🇵" },
+  { code: "zh", name: "Chinese", flag: "🇨🇳" },
+  { code: "th", name: "Thai", flag: "🇹🇭" },
+];
+
+// Multi-Language Text Input Component
+function MultiLanguageTextInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  multiline = false,
+}: {
+  label: string;
+  value: unknown;
+  onChange: (value: Record<string, string>) => void;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  
+  // Convert value to multi-language format
+  const getMultiLangValue = (): Record<string, string> => {
+    if (typeof value === "string") {
+      return { en: value };
+    }
+    if (typeof value === "object" && value !== null) {
+      return value as Record<string, string>;
+    }
+    return { en: "" };
+  };
+  
+  const multiValue = getMultiLangValue();
+  
+  const handleChange = (langCode: string, text: string) => {
+    onChange({ ...multiValue, [langCode]: text });
+  };
+  
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {label}
+        </label>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 flex items-center gap-1"
+        >
+          🌐 {expanded ? "Hide Languages" : "Add Translations"}
+        </button>
+      </div>
+      
+      {/* English (default) */}
+      {multiline ? (
+        <textarea
+          value={multiValue.en || ""}
+          onChange={(e) => handleChange("en", e.target.value)}
+          placeholder={placeholder}
+          rows={3}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+        />
+      ) : (
+        <input
+          type="text"
+          value={multiValue.en || ""}
+          onChange={(e) => handleChange("en", e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+        />
+      )}
+      
+      {/* Other Languages (expandable) */}
+      {expanded && (
+        <div className="mt-3 space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            Add translations for other languages. Leave empty to use English.
+          </p>
+          {LANGUAGES.filter(l => l.code !== "en").map((lang) => (
+            <div key={lang.code}>
+              <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400">
+                {lang.flag} {lang.name}
+              </label>
+              {multiline ? (
+                <textarea
+                  value={multiValue[lang.code] || ""}
+                  onChange={(e) => handleChange(lang.code, e.target.value)}
+                  placeholder={`${placeholder || label} in ${lang.name}`}
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={multiValue[lang.code] || ""}
+                  onChange={(e) => handleChange(lang.code, e.target.value)}
+                  placeholder={`${placeholder || label} in ${lang.name}`}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Visual Editor Component
 function VisualEditor({
   screenId,
@@ -676,7 +795,7 @@ function PopupEditor({
           </label>
           <input
             type="text"
-            value={(config.title as string) || ""}
+            value={getTextValue(config.title)}
             onChange={(e) => onUpdate("title", e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
@@ -705,7 +824,7 @@ function PopupEditor({
           Message
         </label>
         <textarea
-          value={(config.message as string) || ""}
+          value={getTextValue(config.message)}
           onChange={(e) => onUpdate("message", e.target.value)}
           rows={3}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -1064,10 +1183,10 @@ function PopupEditor({
                       {/* Content */}
                       <div className="relative p-4 pt-16 z-10">
                         <p className="text-center font-bold" style={{ color: (config.title_color as string) || "#FFFFFF", fontSize: '14px' }}>
-                          {(config.title as string) || "Title"}
+                          {getTextValue(config.title) || "Title"}
                         </p>
                         <p className="text-center mt-1" style={{ color: (config.message_color as string) || "#E0E0E0", fontSize: '10px', lineHeight: '1.4' }}>
-                          {(config.message as string) || "Message text..."}
+                          {getTextValue(config.message) || "Message text..."}
                         </p>
                         {buttons.length > 0 && (
                           <button className="w-full mt-3 py-2 font-semibold text-xs" style={{ backgroundColor: (config.button_color as string) || "#7C3AED", color: (config.button_text_color as string) || "#FFFFFF", borderRadius: '12px' }}>
@@ -1110,10 +1229,10 @@ function PopupEditor({
                   {/* Content - Bottom */}
                   <div className="absolute bottom-8 left-0 right-0 p-6 z-10">
                     <p className="text-center font-bold" style={{ color: (config.title_color as string) || "#FFFFFF", fontSize: '18px' }}>
-                      {(config.title as string) || "Title"}
+                      {getTextValue(config.title) || "Title"}
                     </p>
                     <p className="text-center mt-2" style={{ color: (config.message_color as string) || "#E0E0E0", fontSize: '11px', lineHeight: '1.5' }}>
-                      {(config.message as string) || "Message text..."}
+                      {getTextValue(config.message) || "Message text..."}
                     </p>
                     {buttons.length > 0 && (
                       <button className="w-full mt-4 py-3 font-semibold text-sm" style={{ backgroundColor: (config.button_color as string) || "#7C3AED", color: (config.button_text_color as string) || "#FFFFFF", borderRadius: '14px' }}>
@@ -1164,10 +1283,10 @@ function PopupEditor({
                       {/* Content */}
                       <div className="relative p-4 pt-10 pb-6 z-10">
                         <p className="text-center font-bold" style={{ color: (config.title_color as string) || "#FFFFFF", fontSize: '14px' }}>
-                          {(config.title as string) || "Title"}
+                          {getTextValue(config.title) || "Title"}
                         </p>
                         <p className="text-center mt-2" style={{ color: (config.message_color as string) || "#E0E0E0", fontSize: '10px', lineHeight: '1.4' }}>
-                          {(config.message as string) || "Message text..."}
+                          {getTextValue(config.message) || "Message text..."}
                         </p>
                         {buttons.length > 0 && (
                           <button className="w-full mt-4 py-2.5 font-semibold text-xs" style={{ backgroundColor: (config.button_color as string) || "#7C3AED", color: (config.button_text_color as string) || "#FFFFFF", borderRadius: '12px' }}>
@@ -1223,10 +1342,17 @@ function BannedScreenEditor({
 }) {
   const supportButton = (config.support_button as {text: string; url: string}) || { text: "", url: "" };
   const quitButton = (config.quit_button as {text: string}) || { text: "" };
-  const gradientColors = (config.background_gradient as string[]) || ["#1A1625", "#2D2640"];
+  const showQuitButton = (config.show_quit_button as boolean) ?? true;
 
   return (
     <div className="space-y-6">
+      {/* Info Banner */}
+      <div className="rounded-lg bg-red-50 p-4 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+        <p className="text-sm text-red-700 dark:text-red-300">
+          🚫 This screen shows when a user's device is banned. Uses white background with app logo.
+        </p>
+      </div>
+
       {/* Title & Message */}
       <div className="grid grid-cols-1 gap-4">
         <div>
@@ -1235,8 +1361,9 @@ function BannedScreenEditor({
           </label>
           <input
             type="text"
-            value={(config.title as string) || ""}
+            value={getTextValue(config.title)}
             onChange={(e) => onUpdate("title", e.target.value)}
+            placeholder="Account Suspended"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
         </div>
@@ -1245,75 +1372,13 @@ function BannedScreenEditor({
             Message
           </label>
           <textarea
-            value={(config.message as string) || ""}
+            value={getTextValue(config.message)}
             onChange={(e) => onUpdate("message", e.target.value)}
             rows={3}
+            placeholder="Your account has been suspended..."
             className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
         </div>
-      </div>
-
-      {/* Image Upload */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Background Image
-        </label>
-        
-        {/* Current Image Preview */}
-        {(config.image as string) && (
-          <div className="mb-3 relative">
-            <img 
-              src={config.image as string} 
-              alt="Preview" 
-              className="w-full h-40 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
-            />
-            <button
-              onClick={() => onUpdate("image", "")}
-              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        )}
-        
-        {/* Upload Button */}
-        <div className="flex gap-2">
-          <label className="flex-1 cursor-pointer">
-            <div className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-3 hover:border-blue-500 dark:border-gray-600 dark:hover:border-blue-400">
-              <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                {(config.image as string) ? "Change Image" : "Upload Image"}
-              </span>
-            </div>
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  if (file.size > 2 * 1024 * 1024) {
-                    alert("Image size must be less than 2MB");
-                    return;
-                  }
-                  const reader = new FileReader();
-                  reader.onload = (event) => {
-                    const base64 = event.target?.result as string;
-                    onUpdate("image", base64);
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }}
-            />
-          </label>
-        </div>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Max 2MB. Supported: JPG, PNG, GIF, WebP
-        </p>
       </div>
 
       {/* Support Button */}
@@ -1324,8 +1389,9 @@ function BannedScreenEditor({
             <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Button Text</label>
             <input
               type="text"
-              value={supportButton.text}
+              value={getTextValue(supportButton.text)}
               onChange={(e) => onUpdate("support_button", { ...supportButton, text: e.target.value })}
+              placeholder="Contact Support"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             />
           </div>
@@ -1343,54 +1409,31 @@ function BannedScreenEditor({
       </div>
 
       {/* Quit Button */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Quit Button Text
+      <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-medium text-gray-900 dark:text-white">Quit Button</h3>
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input
+              type="checkbox"
+              checked={showQuitButton}
+              onChange={(e) => onUpdate("show_quit_button", e.target.checked)}
+              className="peer sr-only"
+            />
+            <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-focus:outline-none dark:bg-gray-600"></div>
         </label>
+        </div>
+        {showQuitButton && (
+          <div>
+            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Button Text</label>
         <input
           type="text"
           value={quitButton.text}
           onChange={(e) => onUpdate("quit_button", { text: e.target.value })}
+              placeholder="Quit App"
           className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
         />
       </div>
-
-      {/* Background Gradient */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Background Gradient Colors
-        </label>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={gradientColors[0]}
-              onChange={(e) => onUpdate("background_gradient", [e.target.value, gradientColors[1]])}
-              className="h-10 w-10 cursor-pointer rounded border-0"
-            />
-            <input
-              type="text"
-              value={gradientColors[0]}
-              onChange={(e) => onUpdate("background_gradient", [e.target.value, gradientColors[1]])}
-              className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-          <span className="text-gray-400">→</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={gradientColors[1]}
-              onChange={(e) => onUpdate("background_gradient", [gradientColors[0], e.target.value])}
-              className="h-10 w-10 cursor-pointer rounded border-0"
-            />
-            <input
-              type="text"
-              value={gradientColors[1]}
-              onChange={(e) => onUpdate("background_gradient", [gradientColors[0], e.target.value])}
-              className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -1405,6 +1448,7 @@ function ServerMaintenanceEditor({
   onUpdate: (path: string, value: unknown) => void;
 }) {
   const isEnabled = (config.enabled as boolean) ?? false;
+  const showProgress = (config.show_progress as boolean) ?? true;
 
   return (
     <div className="space-y-6">
@@ -1415,7 +1459,7 @@ function ServerMaintenanceEditor({
             🔧 Enable Maintenance Mode
           </p>
           <p className="text-sm text-amber-700 dark:text-amber-300">
-            {isEnabled ? "App will show maintenance screen to all users" : "Maintenance mode is disabled"}
+            {isEnabled ? "⚠️ App will show maintenance screen & auto-disconnect VPN" : "Maintenance mode is disabled"}
           </p>
         </div>
         <label className="relative inline-flex cursor-pointer items-center">
@@ -1429,6 +1473,13 @@ function ServerMaintenanceEditor({
         </label>
       </div>
 
+      {/* Info Banner */}
+      <div className="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <p className="text-sm text-blue-700 dark:text-blue-300">
+          ℹ️ Uses white background with app logo, progress bar, and text only.
+        </p>
+      </div>
+
       {/* Title & Message */}
       <div className="grid grid-cols-1 gap-4">
         <div>
@@ -1437,7 +1488,7 @@ function ServerMaintenanceEditor({
           </label>
           <input
             type="text"
-            value={(config.title as string) || ""}
+            value={getTextValue(config.title)}
             onChange={(e) => onUpdate("title", e.target.value)}
             placeholder="Under Maintenance"
             className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -1448,7 +1499,7 @@ function ServerMaintenanceEditor({
             Message
           </label>
           <textarea
-            value={(config.message as string) || ""}
+            value={getTextValue(config.message)}
             onChange={(e) => onUpdate("message", e.target.value)}
             rows={3}
             placeholder="We're currently performing scheduled maintenance..."
@@ -1464,7 +1515,7 @@ function ServerMaintenanceEditor({
         </label>
         <input
           type="text"
-          value={(config.estimated_time as string) || ""}
+          value={getTextValue(config.estimated_time)}
           onChange={(e) => onUpdate("estimated_time", e.target.value)}
           placeholder="e.g., 2 hours, 30 minutes"
           className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
@@ -1474,13 +1525,13 @@ function ServerMaintenanceEditor({
       {/* Show Progress Toggle */}
       <div className="flex items-center justify-between rounded-lg bg-gray-50 p-4 dark:bg-gray-700/50">
         <div>
-          <p className="font-medium text-gray-900 dark:text-white">Show Progress Indicator</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Display animated loading bar</p>
+          <p className="font-medium text-gray-900 dark:text-white">Show Progress Bar</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Display animated loading indicator</p>
         </div>
         <label className="relative inline-flex cursor-pointer items-center">
           <input
             type="checkbox"
-            checked={(config.show_progress as boolean) ?? true}
+            checked={showProgress}
             onChange={(e) => onUpdate("show_progress", e.target.checked)}
             className="peer sr-only"
           />
@@ -1488,124 +1539,21 @@ function ServerMaintenanceEditor({
         </label>
       </div>
 
-      {/* Colors */}
-      <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-        <h3 className="mb-3 font-medium text-gray-900 dark:text-white">Colors</h3>
-        <div className="grid grid-cols-3 gap-4">
+      {/* Progress Text */}
+      {showProgress && (
           <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Background</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={(config.background_color as string) || "#1a1a2e"}
-                onChange={(e) => onUpdate("background_color", e.target.value)}
-                className="h-10 w-10 cursor-pointer rounded border-0"
-              />
+          <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Progress Text
+          </label>
               <input
                 type="text"
-                value={(config.background_color as string) || "#1a1a2e"}
-                onChange={(e) => onUpdate("background_color", e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            value={getTextValue(config.progress_text)}
+            onChange={(e) => onUpdate("progress_text", e.target.value)}
+            placeholder="Working on it..."
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Title Color</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={(config.title_color as string) || "#ffffff"}
-                onChange={(e) => onUpdate("title_color", e.target.value)}
-                className="h-10 w-10 cursor-pointer rounded border-0"
-              />
-              <input
-                type="text"
-                value={(config.title_color as string) || "#ffffff"}
-                onChange={(e) => onUpdate("title_color", e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Message Color</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={(config.message_color as string) || "#b0b0b0"}
-                onChange={(e) => onUpdate("message_color", e.target.value)}
-                className="h-10 w-10 cursor-pointer rounded border-0"
-              />
-              <input
-                type="text"
-                value={(config.message_color as string) || "#b0b0b0"}
-                onChange={(e) => onUpdate("message_color", e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Image Upload */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Custom Image (optional)
-        </label>
-        
-        {/* Current Image Preview */}
-        {(config.image as string) && (
-          <div className="mb-3 relative">
-            <img 
-              src={config.image as string} 
-              alt="Preview" 
-              className="w-full h-40 object-cover rounded-lg border border-gray-300 dark:border-gray-600"
-            />
-            <button
-              onClick={() => onUpdate("image", "")}
-              className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
         )}
-        
-        {/* Upload Button */}
-        <label className="cursor-pointer">
-          <div className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-3 hover:border-blue-500 dark:border-gray-600 dark:hover:border-blue-400">
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {(config.image as string) ? "Change Image" : "Upload Image"}
-            </span>
-          </div>
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                if (file.size > 2 * 1024 * 1024) {
-                  alert("Image size must be less than 2MB");
-                  return;
-                }
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                  const base64 = event.target?.result as string;
-                  onUpdate("image", base64);
-                };
-                reader.readAsDataURL(file);
-              }
-            }}
-          />
-        </label>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Max 2MB. Supported: JPG, PNG, GIF, WebP
-        </p>
-      </div>
     </div>
   );
 }
@@ -1626,69 +1574,51 @@ function HomeScreenEditor({
     <div className="space-y-6">
       {/* App Bar Settings */}
       <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-        <h3 className="mb-3 font-medium text-gray-900 dark:text-white">App Bar Titles</h3>
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Disconnected</label>
-            <input
-              type="text"
-              value={appBar.title_disconnected || ""}
-              onChange={(e) => onUpdate("app_bar.title_disconnected", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+        <h3 className="mb-3 font-medium text-gray-900 dark:text-white">🌐 App Bar Titles (Multi-Language)</h3>
+        <div className="space-y-4">
+          <MultiLanguageTextInput
+            label="Disconnected Title"
+            value={appBar.title_disconnected}
+            onChange={(value) => onUpdate("app_bar.title_disconnected", value)}
+            placeholder="Not Connected"
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Connecting</label>
-            <input
-              type="text"
-              value={appBar.title_connecting || ""}
-              onChange={(e) => onUpdate("app_bar.title_connecting", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          <MultiLanguageTextInput
+            label="Connecting Title"
+            value={appBar.title_connecting}
+            onChange={(value) => onUpdate("app_bar.title_connecting", value)}
+            placeholder="Connecting..."
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Connected</label>
-            <input
-              type="text"
-              value={appBar.title_connected || ""}
-              onChange={(e) => onUpdate("app_bar.title_connected", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          <MultiLanguageTextInput
+            label="Connected Title"
+            value={appBar.title_connected}
+            onChange={(value) => onUpdate("app_bar.title_connected", value)}
+            placeholder="Connected"
             />
-          </div>
         </div>
       </div>
 
       {/* Main Button */}
       <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-        <h3 className="mb-3 font-medium text-gray-900 dark:text-white">Main Button Text</h3>
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Disconnected</label>
-            <input
-              type="text"
-              value={mainButton.status_text_disconnected || ""}
-              onChange={(e) => onUpdate("main_button.status_text_disconnected", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+        <h3 className="mb-3 font-medium text-gray-900 dark:text-white">🌐 Main Button Text (Multi-Language)</h3>
+        <div className="space-y-4">
+          <MultiLanguageTextInput
+            label="Disconnected Status"
+            value={mainButton.status_text_disconnected}
+            onChange={(value) => onUpdate("main_button.status_text_disconnected", value)}
+            placeholder="Tap to Connect"
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Connecting</label>
-            <input
-              type="text"
-              value={mainButton.status_text_connecting || ""}
-              onChange={(e) => onUpdate("main_button.status_text_connecting", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          <MultiLanguageTextInput
+            label="Connecting Status"
+            value={mainButton.status_text_connecting}
+            onChange={(value) => onUpdate("main_button.status_text_connecting", value)}
+            placeholder="Establishing Connection..."
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Connected</label>
-            <input
-              type="text"
-              value={mainButton.status_text_connected || ""}
-              onChange={(e) => onUpdate("main_button.status_text_connected", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          <MultiLanguageTextInput
+            label="Connected Status"
+            value={mainButton.status_text_connected}
+            onChange={(value) => onUpdate("main_button.status_text_connected", value)}
+            placeholder="VPN is On"
             />
-          </div>
         </div>
       </div>
 
@@ -1729,7 +1659,7 @@ function RewardsScreenEditor({
           </label>
           <input
             type="text"
-            value={(config.title as string) || ""}
+            value={getTextValue(config.title)}
             onChange={(e) => onUpdate("title", e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
@@ -1835,7 +1765,7 @@ function EarnMoneyEditor({
         </label>
         <input
           type="text"
-          value={(config.title as string) || ""}
+          value={getTextValue(config.title)}
           onChange={(e) => onUpdate("title", e.target.value)}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
         />
@@ -1978,7 +1908,6 @@ function SplashScreenEditor({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
             App Name
@@ -1990,18 +1919,14 @@ function SplashScreenEditor({
             className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
         </div>
-        <div>
-          <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Tagline
-          </label>
-          <input
-            type="text"
-            value={(config.tagline as string) || ""}
-            onChange={(e) => onUpdate("tagline", e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+
+      {/* Multi-Language Tagline */}
+      <MultiLanguageTextInput
+        label="Tagline"
+        value={config.tagline}
+        onChange={(value) => onUpdate("tagline", value)}
+        placeholder="Secure & Fast"
           />
-        </div>
-      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -2076,8 +2001,8 @@ function SplashScreenEditor({
             background: `linear-gradient(135deg, ${gradientColors[0]}, ${gradientColors[1]})`
           }}
         >
-          <span className="text-xl font-bold text-white">{(config.app_name as string) || "BVPN"}</span>
-          <span className="text-xs text-white/70">{(config.tagline as string) || "Secure & Fast"}</span>
+          <span className="text-xl font-bold text-white">{getTextValue(config.app_name) || "Suk Fhyoke"}</span>
+          <span className="text-xs text-white/70">{getTextValue(config.tagline) || "Secure & Fast"}</span>
         </div>
       </div>
     </div>
@@ -2127,7 +2052,7 @@ function OnboardingEditor({
                   <label className="mb-1 block text-xs text-gray-500">Title</label>
                   <input
                     type="text"
-                    value={page.title}
+                    value={getTextValue(page.title)}
                     onChange={(e) => {
                       const newPages = [...pages];
                       newPages[index] = { ...page, title: e.target.value };
@@ -2139,7 +2064,7 @@ function OnboardingEditor({
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">Description</label>
                   <textarea
-                    value={page.description}
+                    value={getTextValue(page.description)}
                     onChange={(e) => {
                       const newPages = [...pages];
                       newPages[index] = { ...page, description: e.target.value };
@@ -2210,7 +2135,7 @@ function OnboardingEditor({
             <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Next</label>
             <input
               type="text"
-              value={buttons.next || ""}
+              value={getTextValue(buttons.next)}
               onChange={(e) => onUpdate("buttons.next", e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             />
@@ -2219,7 +2144,7 @@ function OnboardingEditor({
             <label className="mb-1 block text-sm text-gray-600 dark:text-gray-400">Get Started</label>
             <input
               type="text"
-              value={buttons.get_started || ""}
+              value={getTextValue(buttons.get_started)}
               onChange={(e) => onUpdate("buttons.get_started", e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             />
@@ -2262,17 +2187,13 @@ function SettingsScreenEditor({
 
   return (
     <div className="space-y-6">
-      <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Title
-        </label>
-        <input
-          type="text"
-          value={(config.title as string) || ""}
-          onChange={(e) => onUpdate("title", e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+      {/* Multi-Language Title */}
+      <MultiLanguageTextInput
+        label="Title"
+        value={config.title}
+        onChange={(value) => onUpdate("title", value)}
+        placeholder="Settings"
         />
-      </div>
 
       {/* Sections */}
       <div>

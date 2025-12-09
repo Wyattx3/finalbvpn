@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_service.dart';
+import '../user_manager.dart';
 
 /// SDUI Service - Fetches UI configurations from Firebase with REAL-TIME updates
 class SduiService {
@@ -11,6 +12,55 @@ class SduiService {
 
   final FirebaseService _firebase = FirebaseService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final UserManager _userManager = UserManager();
+  
+  /// Get language code for current language
+  String get _currentLangCode {
+    final lang = _userManager.currentLanguage.value;
+    switch (lang) {
+      case 'Myanmar (Zawgyi)':
+        return 'my_zawgyi';
+      case 'Myanmar (Unicode)':
+        return 'my_unicode';
+      case 'Japanese':
+        return 'ja';
+      case 'Chinese':
+        return 'zh';
+      case 'Thai':
+        return 'th';
+      default:
+        return 'en';
+    }
+  }
+  
+  /// Get translated text from SDUI config value
+  /// Supports both old format (String) and new format (Map with language codes)
+  /// Example new format: {"en": "Settings", "my_zawgyi": "ဆက္တင္", "ja": "設定"}
+  String getText(dynamic value, [String? fallback]) {
+    if (value == null) return fallback ?? '';
+    
+    // Old format: just a string
+    if (value is String) return value;
+    
+    // New format: map with language codes
+    if (value is Map) {
+      final langCode = _currentLangCode;
+      // Try exact match first
+      if (value.containsKey(langCode)) {
+        return value[langCode]?.toString() ?? fallback ?? '';
+      }
+      // Fallback to English
+      if (value.containsKey('en')) {
+        return value['en']?.toString() ?? fallback ?? '';
+      }
+      // Return first available value
+      if (value.isNotEmpty) {
+        return value.values.first?.toString() ?? fallback ?? '';
+      }
+    }
+    
+    return fallback ?? '';
+  }
   
   // Cache for screen configs
   final Map<String, Map<String, dynamic>> _cache = {};
@@ -251,7 +301,7 @@ class SduiService {
         return {
           "screen_id": "splash",
           "config": {
-            "app_name": "Suf Fhoke VPN",
+            "app_name": "Suk Fhyoke VPN",
             "tagline": "Secure & Fast",
             "gradient_colors": ["#7E57C2", "#B39DDB"],
             "splash_duration_seconds": 3
@@ -265,7 +315,7 @@ class SduiService {
             "enabled": false,
             "display_type": "popup",
             "title": "Welcome!",
-            "message": "Welcome to BVPN",
+            "message": "Welcome to Suk Fhyoke VPN",
             "is_dismissible": true
           }
         };

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/japanese_wave_background.dart';
+import '../widgets/japanese_points_card.dart';
 import '../user_manager.dart';
 import '../services/sdui_service.dart';
+import '../services/localization_service.dart';
 import '../utils/message_dialog.dart';
 import '../utils/network_utils.dart';
 import 'dart:async';
@@ -16,6 +19,7 @@ class EarnMoneyScreen extends StatefulWidget {
 class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
   final UserManager _userManager = UserManager();
   final SduiService _sduiService = SduiService();
+  final LocalizationService _l = LocalizationService();
   
   bool _isWatchingAd = false;
   
@@ -222,25 +226,36 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
     final bool inCooldown = _userManager.isInCooldown.value;
     final Duration cooldown = _userManager.cooldownTime;
 
+    return ValueListenableBuilder<String>(
+      valueListenable: _userManager.currentLanguage,
+      builder: (context, currentLang, _) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
-        statusBarColor: backgroundColor,
-        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-        statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
       ),
       child: Scaffold(
         backgroundColor: backgroundColor,
-        appBar: AppBar(
-          backgroundColor: backgroundColor,
+        body: Stack(
+          children: [
+            if (!isDark)
+              const Positioned.fill(child: JapaneseWaveBackground()),
+              
+            SafeArea(
+              child: Column(
+                children: [
+                  AppBar(
+                    backgroundColor: Colors.transparent,
           elevation: 0,
-          title: Text(_config['title'] ?? 'Earn Points', style: TextStyle(color: textColor)),
+                    title: Text(_sduiService.getText(_config['title'], _l.tr('earn_points')), style: TextStyle(color: textColor)),
           leading: IconButton(
             icon: Icon(Icons.arrow_back_ios, color: textColor),
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: SafeArea(
-          child: Padding(
+                  Expanded(
+                    child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
@@ -248,61 +263,23 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                 ValueListenableBuilder<int>(
                   valueListenable: _userManager.balancePoints,
                   builder: (context, balance, child) {
-                    final usdValue = balance / 4500; 
-                    return Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: isDark 
-                            ? [const Color(0xFF7C4DFF), const Color(0xFFB388FF)]
-                            : [const Color(0xFF7E57C2), const Color(0xFFB39DDB)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Column(
-                        children: [
-                          const Text('Total Points', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                          const SizedBox(height: 6),
-                          Text(
-                            '${_formatNumber(balance)}',
-                            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '≈ ${_formatNumber(balance)} MMK / \$${usdValue.toStringAsFixed(2)} USD',
-                            style: const TextStyle(color: Colors.white70, fontSize: 13),
-                          ),
-                          const SizedBox(height: 2),
-                          Text('1 Point = 1 MMK', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11)),
-                          const SizedBox(height: 12),
-                          ValueListenableBuilder<int>(
+                              return ValueListenableBuilder<int>(
                             valueListenable: _userManager.todayEarnings,
                             builder: (context, todayEarned, child) {
-                              return Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  'Today: +${_formatNumber(todayEarned)} $_currency',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 13),
-                                ),
+                                  return JapanesePointsCard(
+                                    balance: balance,
+                                    currency: _currency,
+                                    todayEarned: todayEarned,
+                                    isDark: isDark,
                               );
                             },
-                          ),
-                        ],
-                      ),
                     );
                   },
                 ),
 
                 const SizedBox(height: 16),
 
-                // Stats Row - with ValueListenableBuilder for real-time updates
+                          // Stats Row
                 ValueListenableBuilder<int>(
                   valueListenable: _userManager.adsWatchedToday,
                   builder: (context, adsWatched, child) {
@@ -312,14 +289,20 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: surfaceColor,
+                                        color: isDark ? surfaceColor : Colors.white.withOpacity(0.8), // Semi-transparent
                               borderRadius: BorderRadius.circular(16),
-                              border: isDark ? Border.all(color: Colors.purple.withOpacity(0.2)) : null,
-                              boxShadow: isDark ? null : [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+                                        border: isDark ? Border.all(color: Colors.purple.withOpacity(0.2)) : Border.all(color: Colors.white),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(isDark ? 0 : 0.05),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          )
+                                        ],
                             ),
                             child: Column(
                               children: [
-                                Icon(Icons.play_circle_outline, color: primaryPurple, size: 24),
+                                          Icon(Icons.play_circle_outline, color: isDark ? primaryPurple : const Color(0xFF0077B6), size: 24),
                                 const SizedBox(height: 6),
                                 Text('$adsWatched / $_maxAdsPerDay', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
                                 const SizedBox(height: 2),
@@ -333,10 +316,16 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: surfaceColor,
+                                        color: isDark ? surfaceColor : Colors.white.withOpacity(0.8),
                               borderRadius: BorderRadius.circular(16),
-                              border: isDark ? Border.all(color: Colors.purple.withOpacity(0.2)) : null,
-                              boxShadow: isDark ? null : [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+                                        border: isDark ? Border.all(color: Colors.purple.withOpacity(0.2)) : Border.all(color: Colors.white),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(isDark ? 0 : 0.05),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          )
+                                        ],
                             ),
                             child: Column(
                               children: [
@@ -356,18 +345,26 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
 
                 const SizedBox(height: 16),
 
-                // Progress Bar - with ValueListenableBuilder
+                          // Progress Bar
                 ValueListenableBuilder<int>(
                   valueListenable: _userManager.adsWatchedToday,
                   builder: (context, adsWatched, child) {
                     final progress = adsWatched / _maxAdsPerDay;
+                              final progressColor = isDark ? primaryPurple : const Color(0xFF0096C7);
+                              
                     return Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: surfaceColor,
+                                  color: isDark ? surfaceColor : Colors.white.withOpacity(0.8),
                         borderRadius: BorderRadius.circular(16),
-                        border: isDark ? Border.all(color: Colors.purple.withOpacity(0.2)) : null,
-                        boxShadow: isDark ? null : [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+                                  border: isDark ? Border.all(color: Colors.purple.withOpacity(0.2)) : Border.all(color: Colors.white),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(isDark ? 0 : 0.05),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    )
+                                  ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,7 +373,7 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text('Daily Progress', style: TextStyle(fontWeight: FontWeight.w600, color: textColor, fontSize: 13)),
-                              Text('${(progress * 100).toInt()}%', style: TextStyle(fontWeight: FontWeight.bold, color: primaryPurple)),
+                                        Text('${(progress * 100).toInt()}%', style: TextStyle(fontWeight: FontWeight.bold, color: progressColor)),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -386,7 +383,7 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                               value: progress,
                               minHeight: 8,
                               backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
-                              valueColor: AlwaysStoppedAnimation<Color>(primaryPurple),
+                                        valueColor: AlwaysStoppedAnimation<Color>(progressColor),
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -397,24 +394,27 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                   },
                 ),
 
-                const Spacer(),
+                          const SizedBox(height: 40), // Spacing before button
 
-                // Watch Ad Button - with ValueListenableBuilder
+                          // Watch Ad Button
                 ValueListenableBuilder<int>(
                   valueListenable: _userManager.adsWatchedToday,
                   builder: (context, adsWatched, child) {
                     final limitReached = adsWatched >= _maxAdsPerDay;
+                              final buttonColor = isDark ? primaryPurple : const Color(0xFF023E8A);
+                              
                     return SizedBox(
                       width: double.infinity,
-                      height: 52,
+                                height: 56,
                       child: ElevatedButton(
                         onPressed: (inCooldown || limitReached) ? null : _watchAd,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryPurple,
+                                    backgroundColor: buttonColor,
                           foregroundColor: Colors.white,
                           disabledBackgroundColor: Colors.grey.shade400,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          elevation: 0,
+                                    elevation: 5,
+                                    shadowColor: buttonColor.withOpacity(0.4),
                         ),
                         child: _isWatchingAd
                             ? const Row(
@@ -422,19 +422,19 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                                 children: [
                                   SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
                                   SizedBox(width: 10),
-                                  Text('Watching Ad...', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                                            Text('Watching Ad...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                 ],
                               )
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(inCooldown ? Icons.timer : Icons.play_circle_filled, size: 24, color: inCooldown ? Colors.white70 : Colors.white),
+                                            Icon(inCooldown ? Icons.timer : Icons.play_circle_filled, size: 28, color: inCooldown ? Colors.white70 : Colors.white),
                                   const SizedBox(width: 10),
                                   Text(
                                     limitReached 
-                                        ? (labels['daily_limit_reached'] ?? 'Daily Limit Reached')
-                                        : (inCooldown ? 'Wait ${_formatDuration(cooldown)}' : (labels['watch_ad_button'] ?? 'Watch Ad & Earn $_rewardPerAd $_currency')),
-                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                                  ? _sduiService.getText(labels['daily_limit_reached'], 'Daily Limit Reached')
+                                                  : (inCooldown ? 'Wait ${_formatDuration(cooldown)}' : _sduiService.getText(labels['watch_ad_button'], 'Watch Ad & Earn $_rewardPerAd $_currency')),
+                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
@@ -443,7 +443,7 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
                   },
                 ),
 
-                const SizedBox(height: 10),
+                          const SizedBox(height: 16),
 
                 // Info Text
                 Text(
@@ -456,8 +456,15 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
               ],
             ),
           ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
+      }  // Close language ValueListenableBuilder builder
+    );  // Close language ValueListenableBuilder
   }
 }

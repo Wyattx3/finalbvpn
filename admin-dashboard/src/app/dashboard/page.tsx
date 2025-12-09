@@ -87,9 +87,8 @@ export default function DashboardPage() {
         ...prev,
         totalUsers: realtimeStats.totalUsers,
         pendingWithdrawals: pendingWithdrawals,
-        // Use real-time total balance as indicator of rewards
-        // totalBalance represents current balance of all users
-        rewardsThisMonth: realtimeStats.totalBalance + (prev.withdrawalsThisMonth || 0),
+        // Don't override rewardsThisMonth - let it come from the summary API
+        // which correctly calculates: balance + approved withdrawals only
       }));
     }
   }, [realtimeStats, pendingWithdrawals, statsLoading]);
@@ -182,7 +181,7 @@ export default function DashboardPage() {
       color: "bg-green-500",
     },
     {
-      name: "Rewards Earned",
+      name: "Rewards (This Month)",
       value: formatMMKShort(summaryStats.rewardsThisMonth),
       change: 0,
       subtext: `+${formatMMK(realtimeStats.totalEarnings)} today`,

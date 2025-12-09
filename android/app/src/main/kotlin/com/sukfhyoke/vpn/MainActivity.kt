@@ -1,4 +1,4 @@
-package com.example.vpn_app
+package com.sukfhyoke.vpn
 
 import android.Manifest
 import android.app.Activity
@@ -25,8 +25,8 @@ import java.util.Timer
 import java.util.TimerTask
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.example.vpn_app/notification"
-    private val VPN_CHANNEL = "com.example.vpn_app/vpn"
+    private val CHANNEL = "com.sukfhyoke.vpn/notification"
+    private val VPN_CHANNEL = "com.sukfhyoke.vpn/vpn"
     private val NOTIFICATION_CHANNEL_ID = "vpn_status_channel_v2"
     private val NOTIFICATION_ID = 1
     private val PERMISSION_REQUEST_CODE = 100
@@ -425,3 +425,4 @@ class MainActivity : FlutterActivity() {
         }
     }
 }
+

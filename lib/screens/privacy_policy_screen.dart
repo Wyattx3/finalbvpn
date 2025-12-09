@@ -50,11 +50,11 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
     final textColor = isDark ? Colors.white : Colors.black;
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     
-    final content = _config['content'] ?? 'No content available.';
+    final content = _sduiService.getText(_config['content'], 'No content available.');
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_config['title'] ?? 'Privacy Policy'),
+        title: Text(_sduiService.getText(_config['title'], 'Privacy Policy')),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
@@ -66,7 +66,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _config['title'] ?? 'Privacy Policy',
+              _sduiService.getText(_config['title'], 'Privacy Policy'),
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,

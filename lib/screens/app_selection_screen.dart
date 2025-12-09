@@ -120,7 +120,7 @@ class _AppSelectionScreenState extends State<AppSelectionScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${_labels['selected'] ?? 'Selected'} (${_selectedApps.length})',
+                          '${_sduiService.getText(_labels['selected'], 'Selected')} (${_selectedApps.length})',
                           style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                         ),
                         TextButton(
@@ -129,7 +129,7 @@ class _AppSelectionScreenState extends State<AppSelectionScreen> {
                               _selectedApps.clear();
                             });
                           },
-                          child: Text(_labels['clear_all'] ?? 'Clear All', style: const TextStyle(color: Colors.deepPurple)),
+                          child: Text(_sduiService.getText(_labels['clear_all'], 'Clear All'), style: const TextStyle(color: Colors.deepPurple)),
                         ),
                       ],
                     ),
@@ -195,7 +195,7 @@ class _AppSelectionScreenState extends State<AppSelectionScreen> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _labels['select_applications'] ?? 'Select Applications',
+                      _sduiService.getText(_labels['select_applications'], 'Select Applications'),
                       style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                     ),
                   ),

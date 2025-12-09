@@ -6,7 +6,7 @@ const SDUI_CONFIGS = [
   {
     id: 'splash',
     config: {
-      app_name: 'BVPN',
+      app_name: 'Suk Fhyoke VPN',
       tagline: 'Secure & Fast',
       gradient_colors: ['#7E57C2', '#B39DDB'],
       splash_duration_seconds: 3,
@@ -65,7 +65,7 @@ const SDUI_CONFIGS = [
       popup_type: 'announcement',
       display_type: 'popup',
       title: 'Welcome!',
-      message: 'Welcome to BVPN - Secure & Fast VPN',
+      message: 'Welcome to Suk Fhyoke VPN - Secure & Fast VPN',
       image: '',
       buttons: [{ text: 'OK', action: 'dismiss' }],
       is_dismissible: true,

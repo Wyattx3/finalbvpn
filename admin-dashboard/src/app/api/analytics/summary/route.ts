@@ -74,33 +74,36 @@ export async function GET() {
       ? Math.round(((withdrawalsThisMonth - lastMonthWithdrawals) / lastMonthWithdrawals) * 100)
       : (withdrawalsThisMonth > 0 ? 100 : 0);
 
-    // Rewards earned - Calculate REAL data only
-    // Total rewards = sum of all balances + APPROVED withdrawals only
-    let totalRewardsEarned = 0;
+    // Rewards earned THIS MONTH only - Calculate REAL data only
+    // Only count approved withdrawals this month (actual cash out this month)
+    let rewardsThisMonth = 0;
     let todayRewards = 0;
-    let approvedWithdrawalsTotal = 0;
     
+    // Sum today's earnings from all devices
     devicesSnapshot.docs.forEach((doc) => {
       const data = doc.data();
-      // Sum current balance (what they have)
-      totalRewardsEarned += data.balance || 0;
-      // Add today's earnings if tracked separately
       todayRewards += data.todayEarnings || 0;
     });
     
-    // Only add APPROVED withdrawals (what users actually cashed out successfully)
+    // Only count APPROVED withdrawals this month as "rewards earned"
+    // This represents actual value given to users this month
     withdrawalsSnapshot.docs.forEach((doc) => {
       const data = doc.data();
-      if (data.status === 'approved') {
-        approvedWithdrawalsTotal += data.points || 0;
+      if (data.status !== 'approved') return;
+      
+      const createdAt = data.createdAt?.toDate?.() || data.createdAt;
+      const amount = data.points || 0;
+      
+      if (createdAt) {
+        const date = new Date(createdAt);
+        if (date >= startOfMonth) {
+          rewardsThisMonth += amount;
+        }
       }
     });
     
-    // Total earned = current balance + what they already withdrew (approved only)
-    totalRewardsEarned += approvedWithdrawalsTotal;
-    
-    // Use total rewards earned as the main stat
-    const rewardsThisMonth = totalRewardsEarned;
+    // Add today's earnings to this month's rewards
+    rewardsThisMonth += todayRewards;
 
     // Pending withdrawals
     const pendingSnapshot = await adminDb.collection('withdrawals').where('status', '==', 'pending').get();

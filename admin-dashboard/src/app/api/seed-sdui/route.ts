@@ -69,7 +69,7 @@ const ALL_SDUI_CONFIGS = {
   },
 
   splash: {
-    app_name: "BVPN",
+    app_name: "Suk Fhyoke VPN",
     tagline: "Secure & Fast",
     gradient_colors: ["#7E57C2", "#B39DDB"],
     splash_duration_seconds: 3,
@@ -80,7 +80,7 @@ const ALL_SDUI_CONFIGS = {
     enabled: false,
     display_type: "popup",
     title: "Welcome!",
-    message: "Welcome to BVPN - Your secure VPN solution",
+    message: "Welcome to Suk Fhyoke VPN - Your secure VPN solution",
     image: "",
     buttons: [
       { text: "Get Started", action: "dismiss" }
@@ -93,7 +93,7 @@ const ALL_SDUI_CONFIGS = {
     enabled: false,
     display_type: "fullscreen",
     title: "Update Available",
-    message: "A new version of BVPN is available. Please update to continue using the app.",
+    message: "A new version of Suk Fhyoke VPN is available. Please update to continue using the app.",
     image: "",
     buttons: [
       { text: "Update Now", action: "update" },
@@ -150,7 +150,7 @@ const ALL_SDUI_CONFIGS = {
       {
         title: "About",
         items: [
-          { id: "about", label: "About BVPN", type: "link" },
+          { id: "about", label: "About Suk Fhyoke", type: "link" },
           { id: "privacy", label: "Privacy Policy", type: "link", url: "https://bvpn.app/privacy" },
           { id: "terms", label: "Terms of Service", type: "link", url: "https://bvpn.app/terms" },
           { id: "support", label: "Contact Support", type: "link", url: "https://t.me/bvpn_support" }

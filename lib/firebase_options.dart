@@ -1,4 +1,4 @@
-// Firebase configuration for BVPN App
+// Firebase configuration for Suk Fhyoke VPN App
 // Project: strategic-volt-341100
 // Auto-generated from Firebase Console
 
@@ -54,7 +54,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '890572946148',
     projectId: 'strategic-volt-341100',
     storageBucket: 'strategic-volt-341100.firebasestorage.app',
-    iosBundleId: 'com.example.vpnApp',
+    iosBundleId: 'com.sukfhyoke.vpn',
   );
 
   // macOS - Uses iOS config
@@ -64,7 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '890572946148',
     projectId: 'strategic-volt-341100',
     storageBucket: 'strategic-volt-341100.firebasestorage.app',
-    iosBundleId: 'com.example.vpnApp',
+    iosBundleId: 'com.sukfhyoke.vpn',
   );
 
   // Windows - Uses Web config

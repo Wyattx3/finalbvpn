@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/sdui_service.dart';
+import '../services/localization_service.dart';
+import '../user_manager.dart';
 import '../utils/message_dialog.dart';
 
 class AboutScreen extends StatefulWidget {
@@ -11,6 +13,8 @@ class AboutScreen extends StatefulWidget {
 
 class _AboutScreenState extends State<AboutScreen> {
   final SduiService _sduiService = SduiService();
+  final LocalizationService _l = LocalizationService();
+  final UserManager _userManager = UserManager();
   Map<String, dynamic> _config = {};
   bool _isLoading = true;
 
@@ -53,15 +57,15 @@ class _AboutScreenState extends State<AboutScreen> {
     final backgroundColor = isDark ? const Color(0xFF1A1625) : const Color(0xFFFAFAFC);
     final primaryBlue = const Color(0xFF2196F3); // Match logo color
 
-    final appName = _config['app_name'] ?? 'Suf Fhoke VPN';
+    final appName = _sduiService.getText(_config['app_name'], 'Suk Fhyoke VPN');
     final version = _config['version'] ?? '1.0.1';
-    final description = _config['description'] ?? 'Secure & Private VPN';
+    final description = _sduiService.getText(_config['description'], 'Secure & Private VPN');
 
     return Scaffold(
       backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: backgroundColor,
-        title: Text(_config['title'] ?? 'About', style: TextStyle(color: textColor)),
+        title: Text(_sduiService.getText(_config['title'], _l.tr('about')), style: TextStyle(color: textColor)),
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),

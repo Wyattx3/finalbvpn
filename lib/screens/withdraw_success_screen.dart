@@ -42,7 +42,7 @@ class _WithdrawSuccessScreenState extends State<WithdrawSuccessScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: Color(0xFF00B4D8),
         body: Center(
           child: CircularProgressIndicator(color: Colors.white),
         ),
@@ -50,7 +50,7 @@ class _WithdrawSuccessScreenState extends State<WithdrawSuccessScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.deepPurple,
+      backgroundColor: const Color(0xFF00B4D8),
       body: Padding(
         padding: const EdgeInsets.all(30.0),
         child: Column(
@@ -66,7 +66,7 @@ class _WithdrawSuccessScreenState extends State<WithdrawSuccessScreen> {
             ),
             const SizedBox(height: 30),
             Text(
-              _config['title'] ?? 'Request Submitted!',
+              _sduiService.getText(_config['title'], 'Request Submitted!'),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 24,
@@ -75,7 +75,7 @@ class _WithdrawSuccessScreenState extends State<WithdrawSuccessScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              _config['description'] ?? 'Your withdraw request has been received. We will process it within 3 business days.',
+              _sduiService.getText(_config['description'], 'Your withdraw request has been received. We will process it within 3 business days.'),
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white70, fontSize: 16),
             ),
@@ -90,7 +90,7 @@ class _WithdrawSuccessScreenState extends State<WithdrawSuccessScreen> {
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  foregroundColor: Colors.deepPurple,
+                  foregroundColor: const Color(0xFF00B4D8),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

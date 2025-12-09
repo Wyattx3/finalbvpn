@@ -2,14 +2,188 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'services/firebase_service.dart';
 
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+
 class UserManager {
   static final UserManager _instance = UserManager._internal();
   factory UserManager() => _instance;
   UserManager._internal() {
     _initFirebaseSync();
+    loadRecentLocation();
+    _loadSettings();
   }
 
   final FirebaseService _firebase = FirebaseService();
+
+  // App Settings
+  final ValueNotifier<String> currentLanguage = ValueNotifier('English');
+  final ValueNotifier<Locale> currentLocale = ValueNotifier(const Locale('en', 'US'));
+
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Load Language
+      final lang = prefs.getString('app_language') ?? 'English';
+      currentLanguage.value = lang;
+      _updateLocale(lang);
+      
+      // Load Split Tunneling
+      final splitMode = prefs.getInt('split_tunneling_mode') ?? 0;
+      splitTunnelingMode.value = splitMode;
+      
+      debugPrint('⚙️ Settings loaded: Language=$lang, SplitMode=$splitMode');
+    } catch (e) {
+      debugPrint('❌ Error loading settings: $e');
+    }
+  }
+
+  // ========== ONBOARDING ==========
+  
+  /// Check if user has completed onboarding (new user = false)
+  Future<bool> hasCompletedOnboarding() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('onboarding_completed') ?? false;
+    } catch (e) {
+      debugPrint('❌ Error checking onboarding status: $e');
+      return false;
+    }
+  }
+  
+  /// Mark onboarding as completed
+  Future<void> completeOnboarding() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('onboarding_completed', true);
+      debugPrint('✅ Onboarding marked as completed');
+    } catch (e) {
+      debugPrint('❌ Error saving onboarding status: $e');
+    }
+  }
+
+  Future<void> setLanguage(String language) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('app_language', language);
+      currentLanguage.value = language;
+      _updateLocale(language);
+      debugPrint('✅ Language saved: $language');
+    } catch (e) {
+      debugPrint('❌ Error saving language: $e');
+    }
+  }
+
+  void _updateLocale(String language) {
+    Locale newLocale;
+    switch (language) {
+      case 'Myanmar (Zawgyi)':
+      case 'Myanmar (Unicode)':
+        newLocale = const Locale('my', 'MM');
+        break;
+      case 'Japanese':
+        newLocale = const Locale('ja', 'JP');
+        break;
+      case 'Chinese':
+        newLocale = const Locale('zh', 'CN');
+        break;
+      case 'Thai':
+        newLocale = const Locale('th', 'TH');
+        break;
+      default:
+        newLocale = const Locale('en', 'US');
+    }
+    
+    debugPrint('🌐 _updateLocale: $language -> ${newLocale.languageCode}_${newLocale.countryCode}');
+    debugPrint('🌐 Old locale: ${currentLocale.value.languageCode}_${currentLocale.value.countryCode}');
+    
+    // Force notify by setting value
+    currentLocale.value = newLocale;
+    
+    debugPrint('🌐 New locale set: ${currentLocale.value.languageCode}_${currentLocale.value.countryCode}');
+  }
+
+  // Recent Location Persistence
+  final ValueNotifier<Map<String, dynamic>?> recentLocation = ValueNotifier(null);
+
+  Future<void> loadRecentLocation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? savedLocation = prefs.getString('recent_location');
+      debugPrint('📍 Raw saved location from prefs: $savedLocation');
+      
+      if (savedLocation != null && savedLocation.isNotEmpty) {
+        final dynamic decoded = jsonDecode(savedLocation);
+        
+        // Ensure proper type casting
+        if (decoded is Map<String, dynamic>) {
+          recentLocation.value = decoded;
+          debugPrint('📍 Loaded recent location: ${decoded['name']}');
+        } else if (decoded is Map) {
+          // Cast from Map<dynamic, dynamic> to Map<String, dynamic>
+          final Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
+          recentLocation.value = data;
+          debugPrint('📍 Loaded recent location (casted): ${data['name']}');
+        } else {
+          debugPrint('❌ Invalid recent location format: ${decoded.runtimeType}');
+        }
+      } else {
+        debugPrint('📍 No recent location saved yet');
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading recent location: $e');
+      // Clear potentially corrupted data
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('recent_location');
+      } catch (_) {}
+    }
+  }
+
+  Future<void> saveRecentLocation(Map<String, dynamic> server) async {
+    try {
+      debugPrint('📍 Attempting to save recent location...');
+      debugPrint('📍 Server data: id=${server['id']}, country=${server['country']}, name=${server['name']}, flag=${server['flag']}');
+      
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Extract only JSON-serializable fields (avoid Timestamp and other Firebase types)
+      final Map<String, dynamic> safeServerData = {
+        'id': server['id']?.toString(),
+        'name': server['name']?.toString(),
+        'country': server['country']?.toString(),
+        'flag': server['flag']?.toString() ?? '🌍',
+        'address': server['address']?.toString(),
+        'port': server['port'] is int ? server['port'] : int.tryParse(server['port']?.toString() ?? '443') ?? 443,
+        'uuid': server['uuid']?.toString(),
+        'path': server['path']?.toString(),
+        'status': server['status']?.toString(),
+        'load': server['load']?.toString(),
+      };
+      
+      // Save relevant info for display
+      final locationData = {
+        'id': safeServerData['id'],
+        'name': '${safeServerData['country']} - ${safeServerData['name']}', // Combined name
+        'flag': safeServerData['flag'],
+        'country': safeServerData['country'],
+        // Save safe server data for reconnection
+        'server_data': safeServerData,
+      };
+      
+      final jsonString = jsonEncode(locationData);
+      debugPrint('📍 JSON to save: $jsonString');
+      
+      await prefs.setString('recent_location', jsonString);
+      recentLocation.value = locationData;
+      debugPrint('✅ Recent location saved successfully: ${locationData['name']}');
+    } catch (e, stack) {
+      debugPrint('❌ Error saving recent location: $e');
+      debugPrint('❌ Stack trace: $stack');
+    }
+  }
+
 
   // Balance (Points) - 1 Ad = 30 Points (30 Points = 30 MMK)
   final ValueNotifier<int> balancePoints = ValueNotifier(0);
@@ -30,6 +204,42 @@ class UserManager {
 
   // Split Tunneling Mode: 0 = Disable, 1 = Uses VPN, 2 = Bypass VPN
   final ValueNotifier<int> splitTunnelingMode = ValueNotifier(0);
+  
+  // Split Tunneling App Lists (package names)
+  List<String> _usesVpnApps = [];
+  List<String> _bypassVpnApps = [];
+  
+  /// Set split tunneling app lists
+  void setSplitTunnelingApps({
+    required List<String> usesVpnApps,
+    required List<String> bypassVpnApps,
+  }) {
+    _usesVpnApps = usesVpnApps;
+    _bypassVpnApps = bypassVpnApps;
+    debugPrint('📱 Split tunneling apps updated: ${usesVpnApps.length} uses VPN, ${bypassVpnApps.length} bypass VPN');
+  }
+  
+  /// Get the list of apps to block from VPN (for flutter_v2ray blockedApps)
+  /// Returns null if split tunneling is disabled
+  /// Returns package names of apps that should NOT use VPN
+  List<String>? getBlockedApps() {
+    switch (splitTunnelingMode.value) {
+      case 0: // Disabled - all apps use VPN
+        return null;
+      case 1: // Only selected apps use VPN - block all others
+        // This is complex - we need to return all apps EXCEPT _usesVpnApps
+        // flutter_v2ray blockedApps means apps that are blocked from VPN
+        // So if mode=1, we want only _usesVpnApps to use VPN, meaning we block everything else
+        // However, we don't have the full list of all apps here
+        // For simplicity, return null and let flutter_v2ray handle it differently
+        // Or we can use a different approach - return _usesVpnApps as "allowed" apps
+        return null; // TODO: This mode requires flutter_v2ray to support "allowedApps"
+      case 2: // Bypass VPN for selected apps - these apps don't use VPN
+        return _bypassVpnApps.isEmpty ? null : _bypassVpnApps;
+      default:
+        return null;
+    }
+  }
 
   // Display Latency Setting
   final ValueNotifier<bool> displayLatency = ValueNotifier(true);

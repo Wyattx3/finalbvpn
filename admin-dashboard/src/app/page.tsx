@@ -141,7 +141,7 @@ export default function LoginPage() {
             Admin Login
           </h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Sign in to access BVPN dashboard
+            Sign in to access Suk Fhyoke dashboard
           </p>
         </div>
 

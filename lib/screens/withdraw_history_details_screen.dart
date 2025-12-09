@@ -81,7 +81,7 @@ class _WithdrawHistoryDetailsScreenState extends State<WithdrawHistoryDetailsScr
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        title: Text(_config['title'] ?? 'Transaction Details'),
+        title: Text(_sduiService.getText(_config['title'], 'Transaction Details')),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -163,7 +163,7 @@ class _WithdrawHistoryDetailsScreenState extends State<WithdrawHistoryDetailsScr
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _labels['transaction_info'] ?? 'Transaction Information',
+                          _sduiService.getText(_labels['transaction_info'], 'Transaction Information'),
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -172,19 +172,19 @@ class _WithdrawHistoryDetailsScreenState extends State<WithdrawHistoryDetailsScr
                         ),
                         const SizedBox(height: 20),
                         
-                        _buildDetailRow(_labels['date'] ?? 'Date', widget.date, textColor),
+                        _buildDetailRow(_sduiService.getText(_labels['date'], 'Date'), widget.date, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow(_labels['payment_method'] ?? 'Payment Method', widget.method, textColor),
+                        _buildDetailRow(_sduiService.getText(_labels['payment_method'], 'Payment Method'), widget.method, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow(_labels['account_name'] ?? 'Account Name', widget.accountName, textColor),
+                        _buildDetailRow(_sduiService.getText(_labels['account_name'], 'Account Name'), widget.accountName, textColor),
                         _buildDivider(isDark),
-                        _buildDetailRow(_labels['account_number'] ?? 'Account Number', widget.accountNumber, textColor),
+                        _buildDetailRow(_sduiService.getText(_labels['account_number'], 'Account Number'), widget.accountNumber, textColor),
                         
                         // Transaction ID - only show if completed
                         if (widget.status == 'Completed' && widget.transactionId.isNotEmpty && widget.transactionId != 'Unknown') ...[
                           _buildDivider(isDark),
                           _buildDetailRow(
-                            _labels['transaction_id'] ?? 'Transaction ID', 
+                            _sduiService.getText(_labels['transaction_id'], 'Transaction ID'), 
                             widget.transactionId, 
                             textColor,
                             valueColor: Colors.green,

@@ -1,4 +1,4 @@
-package com.example.vpn_app
+package com.sukfhyoke.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -139,7 +139,7 @@ class BvpnVpnService : VpnService() {
         Log.d(TAG, "Establishing VPN tunnel...")
         
         val builder = Builder()
-            .setSession("Suf Fhoke VPN")
+            .setSession("Suk Fhyoke VPN")
             .setMtu(1500)
             // VPN IP addresses
             .addAddress("10.0.0.2", 32)
@@ -374,7 +374,7 @@ class BvpnVpnService : VpnService() {
         
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Suf Fhoke VPN")
+            .setContentTitle("Suk Fhyoke VPN")
             .setContentText(status)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)

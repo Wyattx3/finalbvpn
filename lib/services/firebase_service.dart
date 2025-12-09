@@ -711,6 +711,20 @@ class FirebaseService {
       return [];
     }
   }
+  
+  /// Check if a specific server is online (real-time check before connecting)
+  Future<String> getServerStatus(String serverId) async {
+    try {
+      final doc = await _firestore.collection('servers').doc(serverId).get();
+      if (doc.exists) {
+        return doc.data()?['status'] as String? ?? 'offline';
+      }
+      return 'offline';
+    } catch (e) {
+      debugPrint('❌ Error checking server status: $e');
+      return 'offline'; // Default to offline on error for safety
+    }
+  }
 
   /// Stream servers
   Stream<List<Map<String, dynamic>>> getServersStream() {

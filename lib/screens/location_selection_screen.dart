@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/firebase_service.dart';
 import '../services/vpn_speed_service.dart';
+import '../services/localization_service.dart';
+import '../user_manager.dart';
+import '../widgets/country_flag_icon.dart';
+import '../widgets/server_signal_indicator.dart';
 
 class LocationSelectionScreen extends StatefulWidget {
   const LocationSelectionScreen({super.key});
@@ -12,6 +16,8 @@ class LocationSelectionScreen extends StatefulWidget {
 class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
   final FirebaseService _firebaseService = FirebaseService();
   final VpnSpeedService _speedService = VpnSpeedService();
+  final LocalizationService _l = LocalizationService();
+  final UserManager _userManager = UserManager();
   
   int selectedTabIndex = 0; // 0 for Universal, 1 for Streaming
   String selectedLocation = '';
@@ -110,7 +116,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
       backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: backgroundColor,
-        title: Text('Select Location', style: TextStyle(color: textColor)),
+        title: Text(_l.tr('select_location'), style: TextStyle(color: textColor)),
         centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: textColor),
@@ -176,7 +182,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  selectedTabIndex == 0 ? 'All Locations' : 'Streaming Services',
+                  selectedTabIndex == 0 ? _l.tr('all_locations') : _l.tr('streaming'),
                   style: const TextStyle(
                     color: Colors.grey,
                     fontWeight: FontWeight.w500,
@@ -196,10 +202,12 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                         final country = dataMap.keys.elementAt(index);
                         final servers = dataMap[country]!;
                         final flag = servers.first['flag'] ?? '🌍';
+                        final countryCode = servers.first['countryCode'] ?? 'US';
                         final cities = servers.map((s) => s['name'] as String).toList();
                         
                         return CountryTile(
                           countryName: country,
+                          countryCode: countryCode,
                           flagEmoji: flag,
                           locations: cities,
                           servers: servers,
@@ -212,6 +220,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
                             Navigator.pop(context, {
                               'location': '$country - $loc',
                               'flag': flag,
+                              'countryCode': server['countryCode'] ?? countryCode,
                               'server': server,
                             });
                           },
@@ -237,6 +246,7 @@ class _LocationSelectionScreenState extends State<LocationSelectionScreen> {
 
 class CountryTile extends StatelessWidget {
   final String countryName;
+  final String countryCode;
   final String flagEmoji;
   final List<String> locations;
   final List<Map<String, dynamic>> servers;
@@ -248,6 +258,7 @@ class CountryTile extends StatelessWidget {
   const CountryTile({
     super.key,
     required this.countryName,
+    required this.countryCode,
     required this.flagEmoji,
     required this.locations,
     required this.servers,
@@ -262,13 +273,20 @@ class CountryTile extends StatelessWidget {
     final bool isExpandedInitially = locations.contains(selectedLocation);
     final textColor = isDark ? Colors.white : Colors.black;
 
+    // Calculate average connections for country signal indicator
+    int avgConnections = 0;
+    if (servers.isNotEmpty) {
+      final totalConn = servers.fold<int>(0, (sum, s) => sum + ((s['totalConnections'] as num?)?.toInt() ?? 0));
+      avgConnections = totalConn ~/ servers.length;
+    }
+    
     return Theme(
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
         initiallyExpanded: isExpandedInitially,
-        leading: Text(
-          flagEmoji,
-          style: const TextStyle(fontSize: 24),
+        leading: CountryFlagIcon(
+          countryCode: countryCode,
+          size: 36,
         ),
         title: Text(
           countryName,
@@ -281,7 +299,10 @@ class CountryTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.signal_cellular_alt, color: Colors.green),
+            ServerSignalIndicator(
+              totalConnections: avgConnections,
+              size: 18,
+            ),
             const SizedBox(width: 8),
             Icon(
               Icons.keyboard_arrow_down,
@@ -304,6 +325,7 @@ class CountryTile extends StatelessWidget {
     final latency = server['latency'] ?? 0;
     final status = server['status'] as String? ?? 'online';
     final isMaintenance = status == 'maintenance';
+    final totalConnections = (server['totalConnections'] as num?)?.toInt() ?? 0;
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -368,7 +390,11 @@ class CountryTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.signal_cellular_alt, color: Colors.green, size: 20),
+              // Server Signal Indicator based on connections
+              ServerSignalIndicator(
+                totalConnections: totalConnections,
+                size: 18,
+              ),
             ] else ...[
               Icon(Icons.construction, color: Colors.orange.shade700, size: 20),
             ],

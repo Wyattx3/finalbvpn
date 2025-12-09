@@ -2,19 +2,58 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
+import '../services/localization_service.dart';
+import '../services/sdui_service.dart';
+import '../user_manager.dart';
 
-/// Full-screen Banned Screen - Shows when device is banned
-/// Configured via SDUI from Firebase
-class BannedScreen extends StatelessWidget {
+/// Banned Screen - Simple clean design
+/// Shows: Logo, Text, Buttons only on white background
+class BannedScreen extends StatefulWidget {
   final Map<String, dynamic>? config;
   
   const BannedScreen({super.key, this.config});
 
+  @override
+  State<BannedScreen> createState() => _BannedScreenState();
+}
+
+class _BannedScreenState extends State<BannedScreen>
+    with SingleTickerProviderStateMixin {
+  final LocalizationService _l = LocalizationService();
+  final SduiService _sduiService = SduiService();
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+    
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   // Default config if SDUI not available
-  Map<String, dynamic> get _config => config ?? {
+  Map<String, dynamic> get _config => widget.config ?? {
     'title': 'Account Suspended',
     'message': 'Your account has been suspended due to violation of our terms of service.',
-    'image': 'assets/images/banned.png',
     'support_button': {
       'text': 'Contact Support',
       'url': 'https://t.me/bvpn_support',
@@ -22,7 +61,6 @@ class BannedScreen extends StatelessWidget {
     'quit_button': {
       'text': 'Quit App',
     },
-    'background_gradient': ['#1A1625', '#2D2640'],
   };
 
   Future<void> _contactSupport() async {
@@ -35,7 +73,6 @@ class BannedScreen extends StatelessWidget {
   }
 
   void _quitApp() {
-    // Exit the app
     if (Platform.isAndroid) {
       SystemNavigator.pop();
     } else if (Platform.isIOS) {
@@ -45,158 +82,141 @@ class BannedScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = _config['title'] ?? 'Account Suspended';
-    final message = _config['message'] ?? 'Your account has been suspended.';
-    final imagePath = _config['image'] ?? 'assets/images/banned.png';
-    final supportButtonText = _config['support_button']?['text'] ?? 'Contact Support';
-    final quitButtonText = _config['quit_button']?['text'] ?? 'Quit App';
+    final title = _sduiService.getText(_config['title'], _l.tr('account_suspended'));
+    final message = _sduiService.getText(_config['message'], 'Your account has been suspended.');
+    final supportButtonText = _sduiService.getText(_config['support_button']?['text'], 'Contact Support');
+    final quitButtonText = _sduiService.getText(_config['quit_button']?['text'], 'Quit App');
+    final showQuitButton = _config['show_quit_button'] ?? true;
 
     return PopScope(
       canPop: false, // Prevent back button
       child: AnnotatedRegion<SystemUiOverlayStyle>(
-        value: SystemUiOverlayStyle.light,
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+        ),
         child: Scaffold(
-          body: Stack(
-            fit: StackFit.expand,
+          backgroundColor: Colors.white,
+          body: SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: ScaleTransition(
+                scale: _scaleAnimation,
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Full screen background image
+                        // App Logo
               Image.asset(
-                imagePath,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
+                          'assets/images/app_icon.png',
+                          width: 100,
+                          height: 100,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    color: const Color(0xFF1A1625),
-                    child: const Center(
-                      child: Icon(Icons.block, size: 100, color: Colors.red),
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Icon(
+                                Icons.block_outlined,
+                                size: 50,
+                                color: Colors.red.shade400,
                     ),
                   );
                 },
               ),
               
-              // Dark overlay for better text readability
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.3),
-                      Colors.black.withOpacity(0.7),
-                      Colors.black.withOpacity(0.9),
-                    ],
-                    stops: const [0.0, 0.4, 0.6, 1.0],
-                  ),
-                ),
-              ),
-              
-              // Content
-              SafeArea(
-                child: Column(
-                  children: [
-                    // Spacer to push content to bottom
-                    const Spacer(),
-                    
-                    // Content Section at bottom
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                        const SizedBox(height: 40),
+                        
                           // Title
                           Text(
                             title,
+                          textAlign: TextAlign.center,
                             style: const TextStyle(
-                              fontSize: 28,
+                            fontSize: 24,
                               fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                            color: Color(0xFF1A1A2E),
+                            letterSpacing: 0.5,
                             ),
-                            textAlign: TextAlign.center,
                           ),
                           
-                          const SizedBox(height: 12),
+                        const SizedBox(height: 16),
                           
                           // Message
                           Text(
                             message,
+                          textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 15,
-                              color: Colors.white.withOpacity(0.85),
-                              height: 1.4,
+                            color: Colors.grey.shade600,
+                            height: 1.6,
                             ),
-                            textAlign: TextAlign.center,
                           ),
                           
-                          const SizedBox(height: 28),
+                        const SizedBox(height: 40),
                           
                           // Contact Support Button
                           SizedBox(
                             width: double.infinity,
-                            height: 54,
-                            child: ElevatedButton.icon(
+                          height: 50,
+                          child: ElevatedButton(
                               onPressed: _contactSupport,
-                              icon: const Icon(Icons.support_agent, size: 22),
-                              label: Text(
-                                supportButtonText,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF7E57C2),
+                              backgroundColor: Colors.deepPurple,
                                 foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(12),
                                 ),
                                 elevation: 0,
                               ),
+                            child: Text(
+                              supportButtonText,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             ),
                           ),
                           
+                        // Quit Button (optional)
+                        if (showQuitButton) ...[
                           const SizedBox(height: 12),
-                          
-                          // Quit Button
                           SizedBox(
                             width: double.infinity,
-                            height: 54,
-                            child: OutlinedButton.icon(
+                            height: 50,
+                            child: TextButton(
                               onPressed: _quitApp,
-                              icon: const Icon(Icons.exit_to_app, size: 22),
-                              label: Text(
-                                quitButtonText,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.grey.shade600,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: BorderSide(
-                                  color: Colors.white.withOpacity(0.4),
-                                  width: 1.5,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
+                              child: Text(
+                                quitButtonText,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 32),
                   ],
                 ),
               ),
-            ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 }
-

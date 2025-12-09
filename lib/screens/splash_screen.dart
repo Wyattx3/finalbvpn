@@ -5,6 +5,7 @@ import 'home_screen.dart';
 import 'onboarding_screen.dart';
 import '../services/sdui_service.dart';
 import '../services/firebase_service.dart';
+import '../user_manager.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -19,6 +20,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late Animation<double> _fadeAnimation;
   final SduiService _sduiService = SduiService();
   final FirebaseService _firebaseService = FirebaseService();
+  final UserManager _userManager = UserManager();
   
   // SDUI Config
   int _splashDuration = 3;
@@ -92,9 +94,21 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     await Future.delayed(Duration(seconds: _splashDuration > 1 ? _splashDuration - 1 : 1));
     
     if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const OnboardingScreen()),
-      );
+      // Check if user has completed onboarding
+      final hasCompletedOnboarding = await _userManager.hasCompletedOnboarding();
+      debugPrint('📖 Onboarding completed: $hasCompletedOnboarding');
+      
+      if (hasCompletedOnboarding) {
+        // Returning user - go directly to home
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } else {
+        // New user - show onboarding
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const OnboardingScreen()),
+        );
+      }
     }
   }
 

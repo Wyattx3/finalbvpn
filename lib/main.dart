@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/banned_screen.dart';
 import 'theme_notifier.dart';
 import 'services/firebase_service.dart';
+import 'user_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -72,6 +74,7 @@ class VPNApp extends StatefulWidget {
 
 class _VPNAppState extends State<VPNApp> with WidgetsBindingObserver {
   final FirebaseService _firebaseService = FirebaseService();
+  final UserManager _userManager = UserManager();
   Timer? _heartbeatTimer;
   
   // Ban status
@@ -166,13 +169,31 @@ class _VPNAppState extends State<VPNApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<Locale>(
+      valueListenable: _userManager.currentLocale,
+      builder: (context, locale, _) {
+        debugPrint('🌐 MaterialApp rebuilding with locale: ${locale.languageCode}_${locale.countryCode}');
     return ValueListenableBuilder<bool>(
       valueListenable: _isBanned,
       builder: (context, isBanned, _) {
         // If banned, show full-screen ban screen
         if (isBanned) {
           return MaterialApp(
+                key: ValueKey('banned_${locale.languageCode}_${locale.countryCode}'),
             debugShowCheckedModeBanner: false,
+                locale: locale,
+                supportedLocales: const [
+                  Locale('en', 'US'),
+                  Locale('my', 'MM'),
+                  Locale('ja', 'JP'),
+                  Locale('zh', 'CN'),
+                  Locale('th', 'TH'),
+                ],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
             home: BannedScreen(config: _banScreenConfig),
           );
         }
@@ -182,9 +203,24 @@ class _VPNAppState extends State<VPNApp> with WidgetsBindingObserver {
           valueListenable: themeNotifier,
           builder: (context, themeMode, child) {
             return MaterialApp(
-              title: 'Suf Fhoke VPN',
+                  // Force rebuild when locale changes
+                  key: ValueKey('app_${locale.languageCode}_${locale.countryCode}'),
+              title: 'Suk Fhyoke VPN',
               debugShowCheckedModeBanner: false,
               themeMode: themeMode,
+                  locale: locale,
+                  supportedLocales: const [
+                    Locale('en', 'US'),
+                    Locale('my', 'MM'),
+                    Locale('ja', 'JP'),
+                    Locale('zh', 'CN'),
+                    Locale('th', 'TH'),
+                  ],
+                  localizationsDelegates: const [
+                    GlobalMaterialLocalizations.delegate,
+                    GlobalWidgetsLocalizations.delegate,
+                    GlobalCupertinoLocalizations.delegate,
+                  ],
           theme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.light(
@@ -299,6 +335,8 @@ class _VPNAppState extends State<VPNApp> with WidgetsBindingObserver {
         },
       );
       },
+        );
+      }
     );
   }
 }
