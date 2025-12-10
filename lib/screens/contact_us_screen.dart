@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/sdui_service.dart';
+import '../services/firebase_service.dart';
 import '../utils/message_dialog.dart';
+import 'live_chat_screen.dart';
+import 'faq_screen.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -12,10 +16,13 @@ class ContactUsScreen extends StatefulWidget {
 
 class _ContactUsScreenState extends State<ContactUsScreen> {
   final SduiService _sduiService = SduiService();
+  final FirebaseService _firebaseService = FirebaseService();
   
   final TextEditingController _subjectController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   String selectedCategory = 'General Inquiry';
+  bool _isSubmitting = false;
 
   // SDUI Config
   Map<String, dynamic> _config = {};
@@ -60,6 +67,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
   void dispose() {
     _subjectController.dispose();
     _messageController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
@@ -76,8 +84,8 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade50;
     
-    final contactEmail = _config['email'] ?? 'support@vpnapp.com';
-    final telegramHandle = _config['telegram'] ?? '@vpnapp_support';
+    final contactEmail = _config['email'] ?? 'support@sukfhyoke.com';
+    final telegramHandle = _config['telegram'] ?? '@sukfhyoke_support';
 
     return Scaffold(
       appBar: AppBar(
@@ -116,14 +124,38 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     icon: Icons.email_outlined,
                     title: 'Email',
                     subtitle: contactEmail,
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: contactEmail));
-                      showMessageDialog(
-                        context,
-                        message: 'Email copied to clipboard',
-                        type: MessageType.success,
-                        title: 'Copied',
-                      );
+                    onTap: () async {
+                      try {
+                        final Uri emailUri = Uri(
+                          scheme: 'mailto',
+                          path: contactEmail,
+                        );
+                        if (await canLaunchUrl(emailUri)) {
+                          await launchUrl(emailUri);
+                        } else {
+                          // Fallback to copy if email app not available
+                          Clipboard.setData(ClipboardData(text: contactEmail));
+                          if (mounted) {
+                            showMessageDialog(
+                              context,
+                              message: 'Email copied to clipboard',
+                              type: MessageType.success,
+                              title: 'Copied',
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        debugPrint('Error opening email: $e');
+                        Clipboard.setData(ClipboardData(text: contactEmail));
+                        if (mounted) {
+                          showMessageDialog(
+                            context,
+                            message: 'Email copied to clipboard',
+                            type: MessageType.success,
+                            title: 'Copied',
+                          );
+                        }
+                      }
                     },
                     cardColor: cardColor,
                     textColor: textColor,
@@ -136,13 +168,40 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     icon: Icons.telegram,
                     title: 'Telegram',
                     subtitle: telegramHandle,
-                    onTap: () {
-                      showMessageDialog(
-                        context,
-                        message: 'Opening Telegram...',
-                        type: MessageType.info,
-                        title: 'Telegram',
-                      );
+                    onTap: () async {
+                      try {
+                        // Remove @ if present and create telegram URL
+                        final telegramUsername = telegramHandle.replaceFirst('@', '');
+                        final Uri telegramUri = Uri.parse('https://t.me/$telegramUsername');
+                        
+                        // Try to open Telegram app first
+                        final Uri telegramAppUri = Uri.parse('tg://resolve?domain=$telegramUsername');
+                        
+                        if (await canLaunchUrl(telegramAppUri)) {
+                          await launchUrl(telegramAppUri);
+                        } else if (await canLaunchUrl(telegramUri)) {
+                          await launchUrl(telegramUri, mode: LaunchMode.externalApplication);
+                        } else {
+                          if (mounted) {
+                            showMessageDialog(
+                              context,
+                              message: 'Could not open Telegram. Please install Telegram app.',
+                              type: MessageType.error,
+                              title: 'Error',
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        debugPrint('Error opening Telegram: $e');
+                        if (mounted) {
+                          showMessageDialog(
+                            context,
+                            message: 'Error opening Telegram: $e',
+                            type: MessageType.error,
+                            title: 'Error',
+                          );
+                        }
+                      }
                     },
                     cardColor: cardColor,
                     textColor: textColor,
@@ -160,11 +219,9 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     title: 'Live Chat',
                     subtitle: '24/7 Support',
                     onTap: () {
-                      showMessageDialog(
+                      Navigator.push(
                         context,
-                        message: 'Starting live chat...',
-                        type: MessageType.info,
-                        title: 'Live Chat',
+                        MaterialPageRoute(builder: (context) => const LiveChatScreen()),
                       );
                     },
                     cardColor: cardColor,
@@ -179,11 +236,9 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     title: 'FAQ',
                     subtitle: 'Common Questions',
                     onTap: () {
-                      showMessageDialog(
+                      Navigator.push(
                         context,
-                        message: 'Opening FAQ...',
-                        type: MessageType.info,
-                        title: 'FAQ',
+                        MaterialPageRoute(builder: (context) => const FAQScreen()),
                       );
                     },
                     cardColor: cardColor,
@@ -241,6 +296,41 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                       selectedCategory = val!;
                     });
                   },
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Email Field
+            Text(
+              'Your Email',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              style: TextStyle(color: textColor),
+              decoration: InputDecoration(
+                hintText: 'Enter your email address',
+                hintStyle: TextStyle(color: subtitleColor),
+                filled: true,
+                fillColor: cardColor,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: isDark ? Colors.grey.shade700 : Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: isDark ? Colors.grey.shade700 : Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.deepPurple),
                 ),
               ),
             ),
@@ -321,7 +411,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: _submitForm,
+                onPressed: _isSubmitting ? null : _submitForm,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
                   foregroundColor: Colors.white,
@@ -329,10 +419,19 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  'Submit',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+                child: _isSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text(
+                        'Submit',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
               ),
             ),
 
@@ -409,8 +508,8 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     );
   }
 
-  void _submitForm() {
-    if (_subjectController.text.isEmpty || _messageController.text.isEmpty) {
+  Future<void> _submitForm() async {
+    if (_subjectController.text.isEmpty || _messageController.text.isEmpty || _emailController.text.isEmpty) {
       showMessageDialog(
         context,
         message: 'Please fill in all fields',
@@ -420,15 +519,74 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
       return;
     }
 
-    showMessageDialog(
-      context,
-      message: 'Thank you for contacting us. We will get back to you within 24 hours.',
-      type: MessageType.success,
-      title: 'Message Sent!',
-    );
-    
-    // Clear form after successful submission
-    _subjectController.clear();
-    _messageController.clear();
+    // Basic email validation
+    if (!_emailController.text.contains('@') || !_emailController.text.contains('.')) {
+      showMessageDialog(
+        context,
+        message: 'Please enter a valid email address',
+        type: MessageType.error,
+        title: 'Invalid Email',
+      );
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      final deviceId = await _firebaseService.getDeviceId();
+      
+      // Send message via API
+      final response = await _firebaseService.sendContactMessage(
+        category: selectedCategory,
+        subject: _subjectController.text,
+        message: _messageController.text,
+        email: _emailController.text.trim(),
+        deviceId: deviceId,
+      );
+
+      if (mounted) {
+        if (response['success'] == true) {
+          showMessageDialog(
+            context,
+            message: 'Thank you for contacting us. We will get back to you via email within 24 hours.',
+            type: MessageType.success,
+            title: 'Message Sent!',
+          );
+          
+          // Clear form after successful submission
+          _subjectController.clear();
+          _messageController.clear();
+          _emailController.clear();
+          setState(() {
+            selectedCategory = 'General Inquiry';
+          });
+        } else {
+          showMessageDialog(
+            context,
+            message: response['error'] ?? 'Failed to send message. Please try again.',
+            type: MessageType.error,
+            title: 'Error',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error submitting form: $e');
+      if (mounted) {
+        showMessageDialog(
+          context,
+          message: 'Failed to send message. Please check your internet connection and try again.',
+          type: MessageType.error,
+          title: 'Error',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 }

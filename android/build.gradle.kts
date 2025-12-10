@@ -12,6 +12,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Appodeal repository for ads
+        maven { url = uri("https://artifactory.appodeal.com/appodeal") }
     }
 }
 

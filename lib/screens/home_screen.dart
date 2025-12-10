@@ -12,6 +12,7 @@ import '../services/sdui_service.dart';
 import '../services/firebase_service.dart';
 import '../services/vpn_speed_service.dart';
 import '../services/localization_service.dart';
+import '../services/ad_service.dart';
 import '../utils/message_dialog.dart';
 import '../utils/review_utils.dart';
 import 'dynamic_popup_screen.dart';
@@ -24,6 +25,7 @@ import '../widgets/gift_box_icon.dart';
 import '../widgets/country_flag_icon.dart';
 import '../widgets/server_signal_indicator.dart';
 import 'package:flutter_v2ray/flutter_v2ray.dart';
+import 'package:vibration/vibration.dart';
 import 'dart:async';
 import 'dart:ui';
 
@@ -90,11 +92,18 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('🔌 V2Ray Status: state=${status.state}, dl=${status.downloadSpeed}B/s, ul=${status.uploadSpeed}B/s, totalDl=${status.download}, totalUl=${status.upload}');
         
         if (mounted) {
+          final wasConnected = isConnected;
+          
           setState(() {
             // Using string comparison as V2RayStatus enum might not be available or state is a String
             isConnected = status.state.toString() == 'CONNECTED';
             isConnecting = status.state.toString() == 'CONNECTING';
           });
+          
+          // Vibrate when VPN connects (transition from disconnected to connected)
+          if (isConnected && !wasConnected) {
+            _vibrateOnConnect();
+          }
           
           // Always update speed service when connected (even if speeds are 0)
           if (isConnected) {
@@ -568,6 +577,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
   
+  /// Vibrate phone when VPN connects
+  Future<void> _vibrateOnConnect() async {
+    try {
+      // Check if device supports vibration
+      if (await Vibration.hasVibrator() ?? false) {
+        // Vibrate with pattern: short vibration
+        await Vibration.vibrate(duration: 200);
+        debugPrint('📳 Phone vibrated on VPN connect');
+      }
+    } catch (e) {
+      debugPrint('❌ Error vibrating: $e');
+      // Silently fail - vibration is not critical
+    }
+  }
+
   void _updateNotificationWithSpeeds(int downloadSpeedBytes, int uploadSpeedBytes) {
     if (!isConnected) return;
     
@@ -604,30 +628,40 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (isConnected) {
+      // Immediately update UI state for better UX
+      setState(() {
+        isConnected = false;
+      });
+      
+      // Stop timer and notification immediately (non-blocking)
       _userManager.stopTimer();
+      _stopNotification().catchError((e) {
+        debugPrint('❌ Error stopping notification: $e');
+      });
       
-      // Stop speed monitoring and decrement connection count (await to ensure completion)
-      await _speedService.stopSpeedMonitoring();
-      debugPrint('📱 Speed monitoring stopped, connection count decremented');
-      
-      // NOTE: Recent location is saved when SWITCHING to a new server, not on disconnect
-      
-      // Update device status back to 'online' (VPN disconnected but app still open)
-      await _firebaseService.updateDeviceStatus('online');
-      debugPrint('📱 Device status updated to online (VPN disconnected)');
-      
-      // Disconnect VPN service
+      // Disconnect VPN service immediately (don't wait for Firebase operations)
       try {
-        await _flutterV2ray.stopV2Ray();
-        debugPrint('📱 VPN disconnected');
+        _flutterV2ray.stopV2Ray().then((_) {
+          debugPrint('📱 VPN disconnected');
+        }).catchError((e) {
+          debugPrint('❌ Error disconnecting VPN: $e');
+        });
       } catch (e) {
         debugPrint('❌ Error disconnecting VPN: $e');
       }
       
-      setState(() {
-        isConnected = false;
+      // Run Firebase operations in background (don't block UI)
+      _speedService.stopSpeedMonitoring().then((_) {
+        debugPrint('📱 Speed monitoring stopped, connection count decremented');
+      }).catchError((e) {
+        debugPrint('❌ Error stopping speed monitoring: $e');
       });
-      _stopNotification();
+      
+      _firebaseService.updateDeviceStatus('online').then((_) {
+        debugPrint('📱 Device status updated to online (VPN disconnected)');
+      }).catchError((e) {
+        debugPrint('❌ Error updating device status: $e');
+      });
     } else {
       // Check network connection before connecting
       final hasConnection = await NetworkUtils.hasInternetConnection();
@@ -661,22 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
     
     debugPrint('🔌 Auto-disconnecting VPN...');
     
-    _userManager.stopTimer();
-    
-    // Stop speed monitoring
-    await _speedService.stopSpeedMonitoring();
-    
-    // Update device status
-    await _firebaseService.updateDeviceStatus('online');
-    
-    // Disconnect VPN
-    try {
-      await _flutterV2ray.stopV2Ray();
-      debugPrint('✅ VPN auto-disconnected');
-    } catch (e) {
-      debugPrint('❌ Error auto-disconnecting VPN: $e');
-    }
-    
+    // Immediately update UI state
     if (mounted) {
       setState(() {
         isConnected = false;
@@ -684,7 +703,31 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
     
-    _stopNotification();
+    // Stop timer and notification immediately (non-blocking)
+    _userManager.stopTimer();
+    _stopNotification().catchError((e) {
+      debugPrint('❌ Error stopping notification: $e');
+    });
+    
+    // Disconnect VPN immediately
+    try {
+      _flutterV2ray.stopV2Ray().then((_) {
+        debugPrint('✅ VPN auto-disconnected');
+      }).catchError((e) {
+        debugPrint('❌ Error auto-disconnecting VPN: $e');
+      });
+    } catch (e) {
+      debugPrint('❌ Error auto-disconnecting VPN: $e');
+    }
+    
+    // Run Firebase operations in background
+    _speedService.stopSpeedMonitoring().catchError((e) {
+      debugPrint('❌ Error stopping speed monitoring: $e');
+    });
+    
+    _firebaseService.updateDeviceStatus('online').catchError((e) {
+      debugPrint('❌ Error updating device status: $e');
+    });
   }
 
   void _startVpnConnection() async {
@@ -941,39 +984,54 @@ class _HomeScreenState extends State<HomeScreen> {
       timeBonusText = '$minutes Minutes';
     }
     
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Watching Ad...'),
-          ],
-        ),
-      ),
-    );
-
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.pop(context);
+    // Show real rewarded ad using AdService
+    final adService = AdService();
+    final adShown = await adService.showRewardedAd(
+      onReward: (amount, currency) {
+        // User completed watching ad - give reward
+        debugPrint('🎬 Home: User earned reward from ad');
         
-        // Show reward dialog - only add points when user taps OK
+        if (mounted) {
+          // Show reward dialog - only add points when user taps OK
+          showMessageDialog(
+            context,
+            message: '+$timeBonusText Added, +$rewardPerAd Points Earned',
+            type: MessageType.success,
+            title: 'Reward Earned!',
+            onOkPressed: () {
+              // Add reward AFTER user confirms
+              _userManager.watchAdReward();
+              _startVpnConnection();
+            },
+          );
+        }
+      },
+      onAdClosed: () {
+        debugPrint('🎬 Home: Ad closed');
+      },
+      onAdFailed: () {
+        if (mounted) {
+          showMessageDialog(
+            context,
+            message: 'Ad failed to load. Please try again.',
+            type: MessageType.error,
+            title: 'Error',
+          );
+        }
+      },
+    );
+    
+    // If ad was not shown (not loaded), show message
+    if (!adShown) {
+      if (mounted) {
         showMessageDialog(
           context,
-          message: '+$timeBonusText Added, +$rewardPerAd Points Earned',
-          type: MessageType.success,
-          title: 'Reward Earned!',
-          onOkPressed: () {
-            // Add reward AFTER user confirms
-            _userManager.watchAdReward();
-            _startVpnConnection();
-          },
+          message: 'No ads available right now. Please try again later.',
+          type: MessageType.info,
+          title: 'No Ads',
         );
       }
-    });
+    }
   }
 
   Future<void> _openLocationSelection() async {

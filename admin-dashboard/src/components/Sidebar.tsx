@@ -9,7 +9,10 @@ import {
   FaWallet, 
   FaCog, 
   FaFileCode,
-  FaSignOutAlt 
+  FaSignOutAlt,
+  FaEnvelope,
+  FaComments,
+  FaInbox // Added for Emails
 } from "react-icons/fa";
 
 const navigation = [
@@ -17,6 +20,9 @@ const navigation = [
   { name: "Users", href: "/users", icon: FaUsers },
   { name: "Servers", href: "/servers", icon: FaServer },
   { name: "Withdrawals", href: "/withdrawals", icon: FaWallet },
+  { name: "Contact Messages", href: "/contact-messages", icon: FaEnvelope },
+  { name: "Live Chat", href: "/live-chat", icon: FaComments },
+  { name: "Email Inbox", href: "/emails", icon: FaInbox }, // New link
   { name: "App Content (SDUI)", href: "/sdui", icon: FaFileCode },
   { name: "Settings", href: "/settings", icon: FaCog },
 ];

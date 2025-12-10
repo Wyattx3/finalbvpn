@@ -56,7 +56,7 @@ class _BannedScreenState extends State<BannedScreen>
     'message': 'Your account has been suspended due to violation of our terms of service.',
     'support_button': {
       'text': 'Contact Support',
-      'url': 'https://t.me/bvpn_support',
+      'url': 'https://t.me/sukfhyoke_support',
     },
     'quit_button': {
       'text': 'Quit App',
@@ -64,7 +64,7 @@ class _BannedScreenState extends State<BannedScreen>
   };
 
   Future<void> _contactSupport() async {
-    final supportUrl = _config['support_button']?['url'] ?? 'https://t.me/bvpn_support';
+    final supportUrl = _config['support_button']?['url'] ?? 'https://t.me/sukfhyoke_support';
     final uri = Uri.parse(supportUrl);
     
     if (await canLaunchUrl(uri)) {

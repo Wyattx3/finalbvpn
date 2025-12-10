@@ -31,11 +31,11 @@ export async function POST(request: Request) {
 
       case 'adjustBalance':
         const result = await adjustBalance(deviceId, params.amount, params.reason);
-        return NextResponse.json({ success: true, ...result });
+        return NextResponse.json(result);
 
       case 'adjustVpnTime':
         const vpnResult = await adjustVpnTime(deviceId, params.seconds, params.reason);
-        return NextResponse.json({ success: true, ...vpnResult });
+        return NextResponse.json(vpnResult);
 
       case 'getLogs':
         const logs = await getActivityLogs(deviceId, params.limit || 50);

@@ -159,27 +159,56 @@ class FirebaseService {
       final ipInfo = await _getIpInfo();
       final flag = _getCountryFlag(ipInfo['countryCode'] ?? '');
       
+      // Check if device already exists
+      final deviceDoc = await _firestore.collection('devices').doc(deviceId).get();
+      final existingData = deviceDoc.data();
+      final isBanned = existingData?['status'] == 'banned';
+      final hasDataUsage = existingData?['dataUsage'] != null;
+      
       // Register/update device in Firestore directly
       debugPrint('🔥 Registering device to Firebase:');
       debugPrint('   - deviceId: $deviceId');
       debugPrint('   - deviceModel: $deviceModel');
       debugPrint('   - platform: ${_getPlatform()}');
+      debugPrint('   - isBanned: $isBanned');
+      debugPrint('   - hasDataUsage: $hasDataUsage');
       
-      await _firestore.collection('devices').doc(deviceId).set({
+      // Prepare update data - preserve banned status and data usage
+      final updateData = <String, dynamic>{
         'deviceId': deviceId,
         'deviceModel': deviceModel,
         'platform': _getPlatform(),
         'appVersion': '1.0.0',
-        'status': 'online',
         'ipAddress': ipInfo['ipAddress'],
         'country': ipInfo['country'],
         'countryCode': ipInfo['countryCode'],
         'city': ipInfo['city'],
         'flag': flag,
-        'dataUsage': 0,
         'lastSeen': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+      
+      // Only set status to 'online' if device is not banned
+      if (!isBanned) {
+        updateData['status'] = 'online';
+        debugPrint('   - Setting status to online (not banned)');
+      } else {
+        debugPrint('   - Preserving banned status');
+      }
+      
+      // Only set dataUsage to 0 if device doesn't exist or doesn't have dataUsage
+      if (!hasDataUsage) {
+        updateData['dataUsage'] = 0;
+        debugPrint('   - Setting dataUsage to 0 (new device)');
+      } else {
+        debugPrint('   - Preserving existing dataUsage: ${existingData?['dataUsage']}');
+      }
+      
+      // Only set createdAt if device is new
+      if (!deviceDoc.exists) {
+        updateData['createdAt'] = FieldValue.serverTimestamp();
+      }
+      
+      await _firestore.collection('devices').doc(deviceId).set(updateData, SetOptions(merge: true));
       
       // 📝 Log login activity to Firebase
       await _logLoginActivity(deviceId, ipInfo, flag);
@@ -228,22 +257,51 @@ class FirebaseService {
       final ipInfo = await _getIpInfo();
       final flag = _getCountryFlag(ipInfo['countryCode'] ?? '');
       
-      await _firestore.collection('devices').doc(deviceId).set({
+      // Check if device already exists
+      final deviceDoc = await _firestore.collection('devices').doc(deviceId).get();
+      final existingData = deviceDoc.data();
+      final isBanned = existingData?['status'] == 'banned';
+      final hasDataUsage = existingData?['dataUsage'] != null;
+      final hasBalance = existingData?['balance'] != null;
+      
+      // Prepare update data - preserve banned status, data usage, and balance
+      final updateData = <String, dynamic>{
         'deviceId': deviceId,
         'deviceModel': deviceModel,
         'platform': _getPlatform(),
         'appVersion': '1.0.0',
-        'status': 'online',
-        'balance': 0,
         'ipAddress': ipInfo['ipAddress'],
         'country': ipInfo['country'],
         'countryCode': ipInfo['countryCode'],
         'city': ipInfo['city'],
         'flag': flag,
-        'dataUsage': 0,
         'lastSeen': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+      
+      // Only set status to 'online' if device is not banned
+      if (!isBanned) {
+        updateData['status'] = 'online';
+        debugPrint('   - Setting status to online (not banned)');
+      } else {
+        debugPrint('   - Preserving banned status');
+      }
+      
+      // Only set balance to 0 if device doesn't exist or doesn't have balance
+      if (!hasBalance) {
+        updateData['balance'] = 0;
+      }
+      
+      // Only set dataUsage to 0 if device doesn't exist or doesn't have dataUsage
+      if (!hasDataUsage) {
+        updateData['dataUsage'] = 0;
+      }
+      
+      // Only set createdAt if device is new
+      if (!deviceDoc.exists) {
+        updateData['createdAt'] = FieldValue.serverTimestamp();
+      }
+      
+      await _firestore.collection('devices').doc(deviceId).set(updateData, SetOptions(merge: true));
       
       debugPrint('✅ Device registered: $deviceId');
       debugPrint('📍 IP: ${ipInfo['ipAddress']}, Country: ${ipInfo['country']}');
@@ -943,6 +1001,142 @@ class FirebaseService {
       debugPrint('❌ Error getting activity logs: $e');
       return [];
     }
+  }
+
+  // ========== CONTACT & SUPPORT ==========
+  
+  /// Send contact message (saves to Firestore, admin dashboard will handle email sending)
+  Future<Map<String, dynamic>> sendContactMessage({
+    required String category,
+    required String subject,
+    required String message,
+    required String deviceId,
+    required String email,
+  }) async {
+    try {
+      final deviceDoc = await _firestore.collection('devices').doc(deviceId).get();
+      final deviceData = deviceDoc.data();
+      
+      // Save contact message to Firestore
+      final docRef = await _firestore.collection('contact_messages').add({
+        'deviceId': deviceId,
+        'deviceModel': deviceData?['deviceModel'] ?? 'Unknown',
+        'email': email,
+        'category': category,
+        'subject': subject,
+        'message': message,
+        'status': 'pending', // pending, replied, resolved
+        'createdAt': FieldValue.serverTimestamp(),
+        'replies': [],
+      });
+      
+      debugPrint('✅ Contact message saved: ${docRef.id}');
+      
+      return {'success': true, 'messageId': docRef.id};
+    } catch (e) {
+      debugPrint('❌ Error sending contact message: $e');
+      if (e.toString().contains('permission-denied')) {
+        return {'success': false, 'error': 'Permission denied. Please restart the app.'};
+      }
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Send live chat message
+  Future<Map<String, dynamic>> sendLiveChatMessage({
+    required String deviceId,
+    required String message,
+  }) async {
+    try {
+      debugPrint('📤 Sending live chat message from device: $deviceId');
+      
+      // Get device info (optional, for deviceModel)
+      String? deviceModel;
+      try {
+        final deviceDoc = await _firestore.collection('devices').doc(deviceId).get();
+        deviceModel = deviceDoc.data()?['deviceModel'] ?? 'Unknown';
+      } catch (e) {
+        debugPrint('⚠️ Could not fetch device info: $e');
+        deviceModel = 'Unknown';
+      }
+      
+      // Get chat document reference
+      final chatRef = _firestore.collection('live_chats').doc(deviceId);
+      
+      // Get or create chat thread
+      final chatDoc = await chatRef.get();
+      if (!chatDoc.exists) {
+        debugPrint('📝 Creating new chat thread for device: $deviceId');
+        await chatRef.set({
+          'deviceId': deviceId,
+          'deviceModel': deviceModel,
+          'status': 'active', // active, resolved, closed
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastMessageAt': FieldValue.serverTimestamp(),
+          'messages': [],
+        });
+        debugPrint('✅ Chat thread created');
+      }
+      
+      // Add message to thread
+      // Note: Cannot use FieldValue.serverTimestamp() inside arrayUnion
+      // Use Timestamp.now() instead
+      final now = Timestamp.now();
+      final messageData = {
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'sender': 'user',
+        'senderId': deviceId,
+        'message': message,
+        'timestamp': now,
+        'read': false,
+      };
+      
+      debugPrint('💬 Adding message to chat thread...');
+      await chatRef.update({
+        'messages': FieldValue.arrayUnion([messageData]),
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'status': 'active',
+      });
+      
+      debugPrint('✅ Live chat message sent successfully');
+      
+      return {'success': true};
+    } catch (e) {
+      debugPrint('❌ Error sending live chat message: $e');
+      debugPrint('❌ Error type: ${e.runtimeType}');
+      debugPrint('❌ Error details: ${e.toString()}');
+      
+      String errorMessage = 'Failed to send message. Please try again.';
+      
+      if (e.toString().contains('permission-denied') || 
+          e.toString().contains('PERMISSION_DENIED')) {
+        errorMessage = 'Permission denied. Please restart the app and try again.';
+      } else if (e.toString().contains('network') || 
+                 e.toString().contains('unavailable')) {
+        errorMessage = 'Network error. Please check your internet connection.';
+      } else {
+        errorMessage = 'Error: ${e.toString()}';
+      }
+      
+      return {'success': false, 'error': errorMessage};
+    }
+  }
+
+  /// Get live chat messages for device
+  Stream<Map<String, dynamic>?> getLiveChatStream(String deviceId) {
+    return _firestore
+        .collection('live_chats')
+        .doc(deviceId)
+        .snapshots()
+        .map((snapshot) {
+          if (snapshot.exists) {
+            return {
+              'id': snapshot.id,
+              ...snapshot.data()!,
+            };
+          }
+          return null;
+        });
   }
 }
 

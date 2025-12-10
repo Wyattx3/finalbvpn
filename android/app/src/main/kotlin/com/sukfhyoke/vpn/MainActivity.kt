@@ -384,9 +384,11 @@ class MainActivity : FlutterActivity() {
                 .setStyle(NotificationCompat.DecoratedCustomViewStyle())
                 .setCustomContentView(notificationLayout)
                 .setCustomBigContentView(notificationLayout)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setPriority(NotificationCompat.PRIORITY_LOW) // Changed to LOW to prevent sound
                 .setOngoing(true)
                 .setContentIntent(pendingIntent)
+                .setSilent(true) // Silent notification updates
+                .setOnlyAlertOnce(true) // Only alert once, not on every update
                 .build()
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -401,9 +403,11 @@ class MainActivity : FlutterActivity() {
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("SafeVPN Connected")
                 .setContentText("VPN is running - $currentLocation")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(NotificationCompat.PRIORITY_LOW) // Changed to LOW to prevent sound
                 .setOngoing(true)
                 .setContentIntent(pendingIntent)
+                .setSilent(true) // Silent notification updates
+                .setOnlyAlertOnce(true) // Only alert once, not on every update
                 .build()
                 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -415,9 +419,12 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "VPN Status"
             val descriptionText = "Shows VPN connection status"
-            val importance = NotificationManager.IMPORTANCE_HIGH
+            val importance = NotificationManager.IMPORTANCE_LOW // Changed to LOW to prevent sound
             val channel = NotificationChannel(NOTIFICATION_CHANNEL_ID, name, importance).apply {
                 description = descriptionText
+                setSound(null, null) // Disable sound
+                enableVibration(false) // Disable vibration
+                enableLights(false) // Disable LED
             }
             val notificationManager: NotificationManager =
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
