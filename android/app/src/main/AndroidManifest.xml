@@ -14,6 +14,10 @@
     <!-- App Query Permission -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     
+    <!-- Ad Permissions -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
+    
     <application
         android:label="Suk Fhyoke VPN"
         android:name="${applicationName}"
@@ -55,6 +59,11 @@
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
                 android:value="true"/>
         </service>
+        
+        <!-- AdMob App ID - Replace with your actual AdMob App ID from admob.google.com -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"/>
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

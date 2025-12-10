@@ -89,6 +89,9 @@ dependencies {
     
     // BouncyCastle for crypto (WireGuard key generation)
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
+    
+    // MultiDex support for Appodeal
+    implementation("androidx.multidex:multidex:2.0.1")
 }
 
 flutter {

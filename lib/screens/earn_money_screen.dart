@@ -5,6 +5,7 @@ import '../widgets/japanese_points_card.dart';
 import '../user_manager.dart';
 import '../services/sdui_service.dart';
 import '../services/localization_service.dart';
+import '../services/ad_service.dart';
 import '../utils/message_dialog.dart';
 import '../utils/network_utils.dart';
 import 'dart:async';
@@ -170,38 +171,75 @@ class _EarnMoneyScreenState extends State<EarnMoneyScreen> {
       return;
     }
 
-    // Simulate watching ad
-    await Future.delayed(const Duration(seconds: 3));
+    // Show real rewarded ad using AdService
+    final adService = AdService();
+    final adShown = await adService.showRewardedAd(
+      onReward: (amount, currency) async {
+        // User completed watching ad - give reward
+        debugPrint('💰 Earn Money: User earned reward, adding $_rewardPerAd points');
+        
+        if (mounted) {
+          // Show reward dialog - only add points when user taps OK
+          // Earn Money screen: ONLY POINTS, NO VPN TIME
+          showMessageDialog(
+            context,
+            message: '+$_rewardPerAd $_currency earned!',
+            type: MessageType.success,
+            title: 'Reward Earned',
+            onOkPressed: () async {
+              debugPrint('💰 Earn Money: Adding $_rewardPerAd points (no VPN time)');
+              // SERVER-SIDE: Add balance (ONLY POINTS, no VPN time for Earn Money screen)
+              final result = await _userManager.addBalance(_rewardPerAd, addVpnTime: false);
+              
+              if (result['success'] != true) {
+                if (mounted) {
+                  showMessageDialog(
+                    context,
+                    message: result['message'] ?? 'Failed to add reward',
+                    type: MessageType.error,
+                    title: 'Error',
+                  );
+                }
+              }
+            },
+          );
+        }
+      },
+      onAdClosed: () {
+        if (mounted) {
+          setState(() {
+            _isWatchingAd = false;
+          });
+        }
+      },
+      onAdFailed: () {
+        if (mounted) {
+          setState(() {
+            _isWatchingAd = false;
+          });
+          showMessageDialog(
+            context,
+            message: 'Ad failed to load. Please try again.',
+            type: MessageType.error,
+            title: 'Error',
+          );
+        }
+      },
+    );
     
-    if (mounted) {
-      setState(() {
-        _isWatchingAd = false;
-      });
-      
-      // Show reward dialog - only add points when user taps OK
-      // Earn Money screen: ONLY POINTS, NO VPN TIME
-      showMessageDialog(
-        context,
-        message: '+$_rewardPerAd $_currency earned!',
-        type: MessageType.success,
-        title: 'Reward Earned',
-        onOkPressed: () async {
-          debugPrint('💰 Earn Money: Adding $_rewardPerAd points (no VPN time)');
-          // SERVER-SIDE: Add balance (ONLY POINTS, no VPN time for Earn Money screen)
-          final result = await _userManager.addBalance(_rewardPerAd, addVpnTime: false);
-          
-          if (result['success'] != true) {
-            if (mounted) {
-              showMessageDialog(
-                context,
-                message: result['message'] ?? 'Failed to add reward',
-                type: MessageType.error,
-                title: 'Error',
-              );
-            }
-          }
-        },
-      );
+    // If ad was not shown (not loaded), reset state
+    if (!adShown) {
+      if (mounted) {
+        setState(() {
+          _isWatchingAd = false;
+        });
+        showMessageDialog(
+          context,
+          message: 'No ads available right now. Please try again later.',
+          type: MessageType.info,
+          title: 'No Ads',
+        );
+      }
     }
   }
 

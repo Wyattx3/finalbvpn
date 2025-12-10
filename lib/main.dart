@@ -10,6 +10,7 @@ import 'screens/home_screen.dart';
 import 'screens/banned_screen.dart';
 import 'theme_notifier.dart';
 import 'services/firebase_service.dart';
+import 'services/ad_service.dart';
 import 'user_manager.dart';
 
 void main() async {
@@ -41,6 +42,15 @@ void main() async {
   } catch (e, stack) {
     print('=== FIREBASE ERROR: $e ===');
     print('=== STACK: $stack ===');
+  }
+  
+  // Initialize Appodeal Ads SDK
+  try {
+    print('=== INITIALIZING ADS SDK ===');
+    await AdService().initialize();
+    print('=== ADS SDK INIT COMPLETE ===');
+  } catch (e) {
+    print('=== ADS SDK ERROR: $e ===');
   }
   
   print('=== STARTING APP UI ===');

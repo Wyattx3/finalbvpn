@@ -51,6 +51,9 @@ dependencies:
   android_id: ^0.5.1
   flutter_v2ray: ^1.0.10
   vibration: ^3.1.4
+  
+  # Appodeal SDK for Ads (with AdMob mediation)
+  stack_appodeal_flutter: ^3.3.1
 
 dev_dependencies:
   # flutter_test:
