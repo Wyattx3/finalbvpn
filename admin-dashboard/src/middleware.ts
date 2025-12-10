@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // List of protected routes that require authentication
-const protectedRoutes = ['/dashboard', '/users', '/servers', '/withdrawals', '/sdui', '/settings']
+const protectedRoutes = ['/dashboard', '/users', '/servers', '/withdrawals', '/contact-messages', '/live-chat', '/sdui', '/settings']
 
 // Check if the path starts with any protected route
 function isProtectedRoute(pathname: string): boolean {

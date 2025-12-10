@@ -344,7 +344,7 @@ const sduiTranslations = {
           zh: "联系客服",
           th: "ติดต่อฝ่ายสนับสนุน"
         },
-        url: "https://t.me/bvpn_support"
+        url: "https://t.me/sukfhyoke_support"
       },
       quit_button: {
         text: {

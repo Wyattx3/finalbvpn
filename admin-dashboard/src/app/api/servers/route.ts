@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     switch (action) {
       case 'add':
         const addResult = await addServer(serverData);
-        return NextResponse.json({ success: true, ...addResult });
+        return NextResponse.json(addResult);
 
       case 'update':
         if (!serverId) {

@@ -1,8 +1,6 @@
-import { initializeApp, getApps, cert, App, ServiceAccount } from 'firebase-admin/app';
+import { initializeApp, getApps, cert, App, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { getAuth, Auth } from 'firebase-admin/auth';
-import * as path from 'path';
-import * as fs from 'fs';
 
 // Firebase Admin initialization
 let app: App;
@@ -11,23 +9,41 @@ let auth: Auth;
 
 function initializeFirebaseAdmin() {
   if (getApps().length === 0) {
-    // Try to load service account key file
-    const keyPath = path.join(process.cwd(), 'firebase-admin-key.json');
+    // Check for service account credentials in environment variable
+    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
     
-    if (fs.existsSync(keyPath)) {
-      // Use service account key file
-      const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8')) as ServiceAccount;
-      app = initializeApp({
-        credential: cert(serviceAccount),
-        projectId: 'strategic-volt-341100',
-      });
-      console.log('✅ Firebase Admin initialized with service account key');
+    if (serviceAccountJson) {
+      // Use service account from environment variable
+      try {
+        const serviceAccount = JSON.parse(serviceAccountJson);
+        app = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: 'strategic-volt-341100',
+        });
+        console.log('✅ Firebase Admin initialized with service account from env');
+      } catch (e) {
+        console.error('❌ Failed to parse service account JSON:', e);
+        // Fallback to ADC
+        app = initializeApp({
+          credential: applicationDefault(),
+          projectId: 'strategic-volt-341100',
+        });
+      }
     } else {
-      // Fallback to Application Default Credentials
-      app = initializeApp({
-        projectId: process.env.FIREBASE_PROJECT_ID || 'strategic-volt-341100',
-      });
-      console.log('⚠️ Firebase Admin initialized with ADC (no key file found)');
+      // Use Application Default Credentials (works on Firebase App Hosting)
+      try {
+        app = initializeApp({
+          credential: applicationDefault(),
+          projectId: 'strategic-volt-341100',
+        });
+        console.log('✅ Firebase Admin initialized with ADC');
+      } catch (e) {
+        // Last fallback - no credentials (may fail on some operations)
+        app = initializeApp({
+          projectId: 'strategic-volt-341100',
+        });
+        console.log('⚠️ Firebase Admin initialized without explicit credentials');
+      }
     }
   } else {
     app = getApps()[0];

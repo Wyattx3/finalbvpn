@@ -90,18 +90,43 @@ export function useSessionHeartbeat() {
     // Send heartbeat every 2 minutes
     const heartbeat = async () => {
       try {
-        await fetch('/api/admin-login', {
+        const response = await fetch('/api/admin-login', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId }),
         });
+
+        // Check if response is OK
+        if (!response.ok) {
+          // Only log if it's not a 404 (session might not exist yet)
+          if (response.status !== 404) {
+            console.warn('Heartbeat response not OK:', response.status);
+          }
+          return;
+        }
+
+        // Optionally parse response
+        try {
+          const data = await response.json();
+          if (!data.success) {
+            console.warn('Heartbeat returned success: false');
+          }
+        } catch {
+          // Response might not be JSON, that's okay
+        }
       } catch (e) {
+        // Only log network errors, not expected errors
+        if (e instanceof TypeError && e.message === 'Failed to fetch') {
+          // Network error - might be offline or server down
+          // Silently fail, don't spam console
+          return;
+        }
         console.error('Heartbeat failed:', e);
       }
     };
 
-    // Initial heartbeat
-    heartbeat();
+    // Initial heartbeat with delay to avoid race conditions
+    const initialTimeout = setTimeout(heartbeat, 1000);
 
     // Set interval
     const interval = setInterval(heartbeat, 2 * 60 * 1000); // Every 2 minutes
@@ -119,6 +144,7 @@ export function useSessionHeartbeat() {
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
+      clearTimeout(initialTimeout);
       clearInterval(interval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };

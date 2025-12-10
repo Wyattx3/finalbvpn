@@ -53,6 +53,36 @@ service cloud.firestore {
       allow delete: if false;
     }
     
+    // ========== CONTACT MESSAGES ==========
+    // Allow users to create messages, admins to read/reply
+    match /contact_messages/{messageId} {
+      allow read: if true; // In production, limit to creator/admin
+      allow create: if true;
+      allow update: if true; // Allow replies/status updates
+      allow delete: if false;
+    }
+    
+    // ========== EMAIL INBOX ==========
+    // Admin dashboard email management
+    match /email_inbox/{emailId} {
+      allow read, write: if true; // TODO: Restrict to admin in production
+    }
+    
+    // ========== EMAIL SENT ==========
+    // Admin dashboard sent emails
+    match /email_sent/{emailId} {
+      allow read, write: if true; // TODO: Restrict to admin in production
+    }
+    
+    // ========== LIVE CHATS ==========
+    // Allow users to create/read their chat, admins to read/reply
+    match /live_chats/{chatId} {
+      allow read: if true; // In production, limit to creator/admin
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+    
     // ========== VPN SERVERS ==========
     // Public read for all users
     // Allow app to update bandwidth stats

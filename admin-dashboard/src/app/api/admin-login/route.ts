@@ -52,6 +52,7 @@ export async function PUT(request: Request) {
       .get();
 
     if (snapshot.empty) {
+      // Session not found - this is okay for heartbeat, might not exist yet
       return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 
