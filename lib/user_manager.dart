@@ -201,6 +201,7 @@ class UserManager {
   final ValueNotifier<int> remainingSeconds = ValueNotifier(0);
   StreamSubscription<int>? _vpnTimeSubscription;
   Timer? _vpnSyncTimer; // Periodic sync timer
+  bool _isTimerRunning = false; // Track if local timer is actively running
 
   // Split Tunneling Mode: 0 = Disable, 1 = Uses VPN, 2 = Bypass VPN
   final ValueNotifier<int> splitTunnelingMode = ValueNotifier(0);
@@ -301,16 +302,42 @@ class UserManager {
         final currentSeconds = remainingSeconds.value;
         final difference = (seconds - currentSeconds).abs();
         
-        // Update in these cases:
-        // 1. Timer is not running
-        // 2. Significant difference (admin made changes) - more than 60 seconds
-        if (_timer == null || !_timer!.isActive || difference > 60) {
+        // SECURITY: Determine if this is an admin action that should be applied immediately
+        // Admin actions that MUST be applied:
+        // 1. Time set to 0 (admin revoked access)
+        // 2. Time significantly REDUCED (admin reduced time - could be punishment/correction)
+        // 3. Time significantly INCREASED (admin added bonus time)
+        
+        final bool isTimeRevoked = seconds == 0 && currentSeconds > 0;
+        final bool isTimeReduced = seconds < currentSeconds && (currentSeconds - seconds) > 30;
+        final bool isTimeIncreased = seconds > currentSeconds && (seconds - currentSeconds) > 60;
+        final bool isAdminAction = isTimeRevoked || isTimeReduced || isTimeIncreased;
+        
+        if (!_isTimerRunning) {
+          // Timer not running - always safe to update from Firebase
           remainingSeconds.value = seconds;
-          debugPrint('⏱️ VPN time from Firebase: $seconds seconds (diff: $difference)');
-          if (difference > 60) {
-            debugPrint('⏱️ Significant change detected - admin adjustment applied!');
+          debugPrint('⏱️ VPN time from Firebase (timer stopped): $seconds seconds');
+        } else if (isTimeRevoked) {
+          // CRITICAL: Admin revoked all time - must disconnect immediately
+          remainingSeconds.value = 0;
+          debugPrint('🚫 VPN time REVOKED by admin! Forcing disconnect...');
+          // Trigger time expired callback to disconnect VPN
+          _isTimerRunning = false;
+          _timer?.cancel();
+          _vpnSyncTimer?.cancel();
+          if (onTimeExpired != null) {
+            onTimeExpired!();
           }
+        } else if (isTimeReduced) {
+          // Admin reduced time - apply immediately (could be correction/punishment)
+          remainingSeconds.value = seconds;
+          debugPrint('⚠️ VPN time REDUCED by admin: $currentSeconds → $seconds seconds');
+        } else if (isTimeIncreased) {
+          // Admin added bonus time - apply immediately
+          remainingSeconds.value = seconds;
+          debugPrint('🎁 VPN time INCREASED by admin: $currentSeconds → $seconds seconds');
         }
+        // Otherwise, ignore minor differences (sync delays) - local timer takes priority
       },
       onError: (e) {
         debugPrint('❌ Error listening to VPN time: $e');
@@ -424,18 +451,26 @@ class UserManager {
 
   // Start Countdown - Syncs to Firebase every 30 seconds
   void startTimer() {
+    // Cancel any existing timers first
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
+    
+    // Mark timer as running - this prevents Firebase listener from interfering
+    _isTimerRunning = true;
+    debugPrint('⏱️ Timer starting... remaining: ${remainingSeconds.value} seconds');
     
     // Local countdown timer (every second)
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (remainingSeconds.value > 0) {
         remainingSeconds.value--;
       } else {
+        // Time expired
+        _isTimerRunning = false;
         _timer?.cancel();
         _vpnSyncTimer?.cancel();
         // Sync final time to Firebase
         _firebase.syncVpnTime(0);
+        debugPrint('⏱️ Timer expired - auto disconnecting');
         if (onTimeExpired != null) {
           onTimeExpired!(); // Auto disconnect
         }
@@ -444,16 +479,20 @@ class UserManager {
     
     // Sync to Firebase every 30 seconds to reduce write operations
     _vpnSyncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (remainingSeconds.value > 0) {
+      if (remainingSeconds.value > 0 && _isTimerRunning) {
         _firebase.syncVpnTime(remainingSeconds.value);
+        debugPrint('⏱️ Synced to Firebase: ${remainingSeconds.value} seconds');
       }
     });
     
-    debugPrint('⏱️ Timer started with Firebase sync');
+    debugPrint('⏱️ Timer started successfully');
   }
 
   // Stop Countdown and sync final time to Firebase
   void stopTimer() {
+    // Mark timer as stopped FIRST - allows Firebase listener to update again
+    _isTimerRunning = false;
+    
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
     

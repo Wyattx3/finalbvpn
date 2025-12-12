@@ -18,46 +18,22 @@ void main() async {
   
   print('=== APP STARTING ===');
   
-  // Initialize Firebase with timeout
-  try {
-    print('=== FIREBASE INIT START ===');
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    print('=== FIREBASE INIT OK ===');
-    
-    final firebaseService = FirebaseService();
-    print('=== GETTING DEVICE ID ===');
-    final deviceId = await firebaseService.getDeviceId();
-    print('=== DEVICE ID: $deviceId ===');
-    
-    print('=== REGISTERING DEVICE ===');
-    // Add timeout to prevent blocking if network is unavailable
-    final success = await firebaseService.initialize().timeout(
-      const Duration(seconds: 10),
-      onTimeout: () {
-        print('=== REGISTER TIMEOUT - CONTINUING WITHOUT REGISTRATION ===');
-        return false;
-      },
-    );
-    print('=== REGISTER RESULT: $success ===');
-  } catch (e, stack) {
-    print('=== FIREBASE ERROR: $e ===');
-    print('=== STACK: $stack ===');
-  }
+  // Enable edge-to-edge but with colored system bars
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   
-  // Initialize Appodeal Ads SDK
+  // Initialize Firebase ONLY (required for app to work)
+  // Device registration and other heavy operations happen in SplashScreen
   try {
-    print('=== INITIALIZING ADS SDK ===');
-    await AdService().initialize();
-    print('=== ADS SDK INIT COMPLETE ===');
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    print('=== FIREBASE CORE INIT OK ===');
   } catch (e) {
-    print('=== ADS SDK ERROR: $e ===');
+    print('=== FIREBASE ERROR: $e ===');
   }
   
   print('=== STARTING APP UI ===');
   
-  // Enable edge-to-edge but with colored system bars
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  
+  // Run app IMMEDIATELY - don't block with heavy initialization
+  // SplashScreen will handle device registration, servers loading, and ads SDK
   runApp(const VPNApp());
 }
 

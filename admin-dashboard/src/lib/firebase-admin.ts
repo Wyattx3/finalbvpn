@@ -246,6 +246,34 @@ export async function toggleDeviceBan(deviceId: string, ban: boolean, reason?: s
   return { success: true };
 }
 
+// Delete device permanently
+export async function deleteDevice(deviceId: string) {
+  const deviceRef = adminDb.collection('devices').doc(deviceId);
+  const deviceDoc = await deviceRef.get();
+
+  if (!deviceDoc.exists) {
+    throw new Error('Device not found');
+  }
+
+  // Also delete related activity logs
+  const logsSnapshot = await adminDb.collection('activity_logs')
+    .where('deviceId', '==', deviceId)
+    .get();
+
+  const batch = adminDb.batch();
+  
+  // Delete the device
+  batch.delete(deviceRef);
+  
+  // Delete related logs
+  logsSnapshot.docs.forEach((doc) => {
+    batch.delete(doc.ref);
+  });
+
+  await batch.commit();
+  return { success: true };
+}
+
 // Adjust balance
 export async function adjustBalance(deviceId: string, amount: number, reason: string) {
   const deviceRef = adminDb.collection('devices').doc(deviceId);

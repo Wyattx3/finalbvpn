@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:android_id/android_id.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:persistent_device_id/persistent_device_id.dart';
 
 /// Firebase Service - Handles all backend communication using Firestore directly
 class FirebaseService {
@@ -20,6 +21,8 @@ class FirebaseService {
   bool _isInitialized = false;
 
   // ========== DEVICE ID ==========
+  static const String _deviceIdKey = 'suk_fhyoke_device_id';
+  
   /// Force refresh device ID (reload from system)
   Future<void> refreshDeviceId() async {
     _deviceId = null;
@@ -28,15 +31,32 @@ class FirebaseService {
   }
   
   /// Get PERMANENT device ID that survives app uninstall
-  /// - Android: Uses ANDROID_ID (persists across reinstalls, resets on factory reset)
-  /// - iOS: Uses identifierForVendor
-  /// - Others: Uses platform-specific identifiers
+  /// Priority order:
+  /// 1. SharedPreferences (most reliable - survives reinstall if backup enabled)
+  /// 2. persistent_device_id package (uses secure storage)
+  /// 3. Platform-specific fallback
   Future<String> getDeviceId() async {
     if (_deviceId != null) {
       return _deviceId!;
     }
 
     try {
+      // Step 1: Try to get from SharedPreferences first (most reliable)
+      final prefs = await SharedPreferences.getInstance();
+      final savedDeviceId = prefs.getString(_deviceIdKey);
+      
+      if (savedDeviceId != null && savedDeviceId.isNotEmpty) {
+        _deviceId = savedDeviceId;
+        debugPrint('📱 Device ID from SharedPreferences: $_deviceId');
+        
+        // Also get device model
+        await _loadDeviceModel();
+        return _deviceId!;
+      }
+      
+      debugPrint('📱 No saved device ID, generating new one...');
+      
+      // Step 2: Generate new device ID
       if (kIsWeb) {
         final webInfo = await _deviceInfo.webBrowserInfo;
         _deviceId = 'web${webInfo.userAgent?.hashCode.toRadixString(16) ?? DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
@@ -46,24 +66,46 @@ class FirebaseService {
         debugPrint('📱 Getting Android info...');
         debugPrint('📱 Brand: ${androidInfo.brand}, Model: ${androidInfo.model}');
         
-        // Use ANDROID_ID - the REAL permanent ID that survives reinstalls!
-        // Only resets on factory reset
+        // Try persistent_device_id first
+        String? persistentId;
         try {
-          const androidIdPlugin = AndroidId();
-          final androidId = await androidIdPlugin.getId();
-          debugPrint('📱 AndroidId plugin returned: $androidId');
-          _deviceId = androidId ?? 'android_${androidInfo.id}';
+          // Call as a function - returns Future<String?>
+          persistentId = await PersistentDeviceId.getDeviceId();
+          debugPrint('📱 PersistentDeviceId returned: $persistentId');
         } catch (e) {
-          debugPrint('❌ AndroidId plugin error: $e');
-          // Fallback to device fingerprint
-          _deviceId = 'android_${androidInfo.id}';
+          debugPrint('⚠️ PersistentDeviceId error: $e');
         }
+        
+        if (persistentId != null && persistentId.isNotEmpty) {
+          // Check if this looks like a Base64 string (old format)
+          // Base64 strings often contain +, /, = characters
+          if (persistentId.contains('/') || persistentId.contains('+') || persistentId.contains('=')) {
+            // Convert Base64 ID to a cleaner hex format for readability
+            final hashCode = persistentId.hashCode;
+            final cleanId = hashCode.toRadixString(16).padLeft(12, '0');
+            _deviceId = cleanId;
+            debugPrint('📱 Converted Base64 to clean ID: $_deviceId');
+          } else {
+            // Already a clean format, use as-is
+            _deviceId = persistentId;
+          }
+        } else {
+          // Fallback: Create a stable ID from hardware info
+          // This combination should be unique per device
+          final fingerprint = androidInfo.fingerprint;
+          final serialNumber = androidInfo.serialNumber;
+          final androidId = androidInfo.id;
+          
+          // Create hash from multiple sources for stability
+          final combined = '$fingerprint|$serialNumber|$androidId';
+          final hash = combined.hashCode.toRadixString(16).padLeft(16, '0');
+          _deviceId = 'android_$hash';
+          debugPrint('📱 Generated fallback ID from hardware: $_deviceId');
+        }
+        
         _deviceModel = '${androidInfo.brand} ${androidInfo.model}';
-        debugPrint('📱 Final Device ID: $_deviceId');
-        debugPrint('📱 Device Model: $_deviceModel');
       } else if (Platform.isIOS) {
         final iosInfo = await _deviceInfo.iosInfo;
-        // identifierForVendor persists across reinstalls for same vendor
         _deviceId = iosInfo.identifierForVendor ?? 'ios${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
         _deviceModel = '${iosInfo.name} ${iosInfo.model}';
       } else if (Platform.isWindows) {
@@ -85,7 +127,11 @@ class FirebaseService {
         _deviceModel = 'Unknown Device';
       }
       
-      debugPrint('📱 Device ID: $_deviceId');
+      // Step 3: Save to SharedPreferences for future use
+      await prefs.setString(_deviceIdKey, _deviceId!);
+      debugPrint('📱 Device ID saved to SharedPreferences: $_deviceId');
+      debugPrint('📱 Device Model: $_deviceModel');
+      
     } catch (e) {
       debugPrint('❌ Error getting device info: $e');
       _deviceId = 'err${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
@@ -93,6 +139,25 @@ class FirebaseService {
     }
 
     return _deviceId!;
+  }
+  
+  /// Load device model info
+  Future<void> _loadDeviceModel() async {
+    if (_deviceModel != null) return;
+    
+    try {
+      if (Platform.isAndroid) {
+        final androidInfo = await _deviceInfo.androidInfo;
+        _deviceModel = '${androidInfo.brand} ${androidInfo.model}';
+      } else if (Platform.isIOS) {
+        final iosInfo = await _deviceInfo.iosInfo;
+        _deviceModel = '${iosInfo.name} ${iosInfo.model}';
+      } else {
+        _deviceModel = 'Unknown Device';
+      }
+    } catch (e) {
+      _deviceModel = 'Unknown Device';
+    }
   }
 
   String get deviceModel => _deviceModel ?? 'Unknown Device';
@@ -107,31 +172,45 @@ class FirebaseService {
     return 'unknown';
   }
 
-  // ========== IP/GEOLOCATION ==========
-  
+  // ========== IP/GEOLOCATION (OPTIONAL) ==========
+
   /// Get IP address and country info from free API
+  /// This is OPTIONAL - app works without it
+  /// Uses very short timeout (2s) to avoid blocking
   Future<Map<String, String>> _getIpInfo() async {
+    // Single fast API with very short timeout
+    // If blocked, we skip immediately - IP info is not critical
     try {
       final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 5);
+      client.connectionTimeout = const Duration(seconds: 2);
       
-      final request = await client.getUrl(Uri.parse('http://ip-api.com/json/'));
-      final response = await request.close();
+      // Try ipapi.co first (usually accessible)
+      final request = await client.getUrl(Uri.parse('https://ipapi.co/json/')).timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => throw TimeoutException('timeout'),
+      );
       
+      final response = await request.close().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => throw TimeoutException('timeout'),
+      );
+
       if (response.statusCode == 200) {
         final responseBody = await response.transform(utf8.decoder).join();
         final data = json.decode(responseBody) as Map<String, dynamic>;
         
         return {
-          'ipAddress': data['query']?.toString() ?? '',
-          'country': data['country']?.toString() ?? 'Unknown',
-          'countryCode': data['countryCode']?.toString() ?? '',
+          'ipAddress': data['ip']?.toString() ?? '',
+          'country': data['country_name']?.toString() ?? 'Unknown',
+          'countryCode': data['country_code']?.toString() ?? '',
           'city': data['city']?.toString() ?? '',
         };
       }
     } catch (e) {
-      debugPrint('⚠️ Could not get IP info: $e');
+      // Silently fail - IP info is optional
+      debugPrint('📍 IP check skipped: $e');
     }
+    
     return {'ipAddress': '', 'country': 'Unknown', 'countryCode': '', 'city': ''};
   }
   
@@ -150,20 +229,52 @@ class FirebaseService {
   /// Initialize Firebase and register device
   Future<bool> initialize() async {
     if (_isInitialized) return true;
-    
+
     try {
       final deviceId = await getDeviceId();
       debugPrint('🔥 Firebase initializing for device: $deviceId');
+
+      // IP check is OPTIONAL - skip entirely in restricted networks
+      // This info is only for admin analytics, not required for VPN to work
+      Map<String, String> ipInfo = {'ipAddress': '', 'country': 'Unknown', 'countryCode': '', 'city': ''};
+      String flag = '🌍';
       
-      // Get IP and geolocation info
-      final ipInfo = await _getIpInfo();
-      final flag = _getCountryFlag(ipInfo['countryCode'] ?? '');
+      // Try to get IP info in background (non-blocking, 3 second max)
+      // If it fails, we just continue without it
+      try {
+        final ipFuture = _getIpInfo();
+        ipInfo = await ipFuture.timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => {'ipAddress': '', 'country': 'Unknown', 'countryCode': '', 'city': ''},
+        );
+        flag = _getCountryFlag(ipInfo['countryCode'] ?? '');
+        debugPrint('📍 Got IP info: ${ipInfo['country']}');
+      } catch (e) {
+        debugPrint('📍 IP check skipped (network restricted) - this is OK');
+        // Continue with default values - VPN will still work
+      }
       
-      // Check if device already exists
-      final deviceDoc = await _firestore.collection('devices').doc(deviceId).get();
-      final existingData = deviceDoc.data();
-      final isBanned = existingData?['status'] == 'banned';
-      final hasDataUsage = existingData?['dataUsage'] != null;
+      // Check if device already exists (with timeout for restricted networks)
+      DocumentSnapshot<Map<String, dynamic>>? deviceDoc;
+      Map<String, dynamic>? existingData;
+      bool isBanned = false;
+      bool hasDataUsage = false;
+      
+      try {
+        deviceDoc = await _firestore.collection('devices').doc(deviceId).get().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {
+            debugPrint('⏰ Firebase get device timeout');
+            throw TimeoutException('Firebase timeout');
+          },
+        );
+        existingData = deviceDoc.data();
+        isBanned = existingData?['status'] == 'banned';
+        hasDataUsage = existingData?['dataUsage'] != null;
+      } catch (e) {
+        debugPrint('⚠️ Could not check device in Firebase: $e');
+        // Continue with default values - device will be registered as new
+      }
       
       // Register/update device in Firestore directly
       debugPrint('🔥 Registering device to Firebase:');
@@ -204,19 +315,35 @@ class FirebaseService {
       }
       
       // Only set createdAt if device is new
-      if (!deviceDoc.exists) {
+      if (deviceDoc == null || !deviceDoc.exists) {
         updateData['createdAt'] = FieldValue.serverTimestamp();
       }
       
-      await _firestore.collection('devices').doc(deviceId).set(updateData, SetOptions(merge: true));
-      
-      // 📝 Log login activity to Firebase
-      await _logLoginActivity(deviceId, ipInfo, flag);
-      
-      _isInitialized = true;
-      debugPrint('✅ Firebase initialized successfully!');
-      debugPrint('📍 IP: ${ipInfo['ipAddress']}, Country: ${ipInfo['country']}');
-      return true;
+      // Save to Firebase with timeout
+      try {
+        await _firestore.collection('devices').doc(deviceId).set(updateData, SetOptions(merge: true)).timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {
+            debugPrint('⏰ Firebase set device timeout');
+            throw TimeoutException('Firebase set timeout');
+          },
+        );
+        
+        // 📝 Log login activity to Firebase (non-blocking)
+        _logLoginActivity(deviceId, ipInfo, flag).catchError((e) {
+          debugPrint('⚠️ Failed to log login activity: $e');
+        });
+        
+        _isInitialized = true;
+        debugPrint('✅ Firebase initialized successfully!');
+        debugPrint('📍 IP: ${ipInfo['ipAddress']}, Country: ${ipInfo['country']}');
+        return true;
+      } catch (e) {
+        debugPrint('⚠️ Firebase save failed: $e - continuing in offline mode');
+        // Still mark as initialized to allow app to work offline
+        _isInitialized = true;
+        return false;
+      }
     } catch (e) {
       debugPrint('❌ Firebase initialization error: $e');
       return false;
@@ -251,10 +378,22 @@ class FirebaseService {
   /// Register device with Firebase (using Firestore directly)
   Future<Map<String, dynamic>> registerDevice() async {
     final deviceId = await getDeviceId();
-    
+
     try {
-      // Get IP and geolocation info
-      final ipInfo = await _getIpInfo();
+      // Get IP and geolocation info with timeout
+      Map<String, String> ipInfo;
+      try {
+        ipInfo = await _getIpInfo().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            debugPrint('⚠️ IP check timeout in registerDevice');
+            return {'ipAddress': '', 'country': 'Unknown', 'countryCode': '', 'city': ''};
+          },
+        );
+      } catch (e) {
+        debugPrint('⚠️ IP check error in registerDevice: $e');
+        ipInfo = {'ipAddress': '', 'country': 'Unknown', 'countryCode': '', 'city': ''};
+      }
       final flag = _getCountryFlag(ipInfo['countryCode'] ?? '');
       
       // Check if device already exists
@@ -755,11 +894,20 @@ class FirebaseService {
   /// Get all servers from Firestore
   Future<List<Map<String, dynamic>>> getServers() async {
     try {
+      // Add timeout to prevent hanging in restricted networks
       final snapshot = await _firestore
           .collection('servers')
           .where('status', isNotEqualTo: 'offline')
-          .get();
-      
+          .get()
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              debugPrint('⏰ getServers timeout - network may be restricted');
+              throw TimeoutException('Firebase servers fetch timeout');
+            },
+          );
+
+      debugPrint('✅ Loaded ${snapshot.docs.length} servers from Firebase');
       return snapshot.docs.map((doc) => {
         'id': doc.id,
         ...doc.data(),

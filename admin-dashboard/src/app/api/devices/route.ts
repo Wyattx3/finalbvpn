@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAllDevices, toggleDeviceBan, adjustBalance, adjustVpnTime, getActivityLogs } from '@/lib/firebase-admin';
+import { getAllDevices, toggleDeviceBan, adjustBalance, adjustVpnTime, getActivityLogs, deleteDevice } from '@/lib/firebase-admin';
 
 export async function GET(request: Request) {
   try {
@@ -40,6 +40,10 @@ export async function POST(request: Request) {
       case 'getLogs':
         const logs = await getActivityLogs(deviceId, params.limit || 50);
         return NextResponse.json({ success: true, logs });
+
+      case 'delete':
+        await deleteDevice(deviceId);
+        return NextResponse.json({ success: true, message: 'Device deleted permanently' });
 
       default:
         return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });

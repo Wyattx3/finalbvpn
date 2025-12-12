@@ -1035,15 +1035,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openLocationSelection() async {
-    if (isConnected) {
-      showMessageDialog(
-        context,
-        message: 'Please disconnect to change location',
-        type: MessageType.info,
-        title: 'Disconnect First',
-      );
-      return;
-    }
+    // Track if we were connected before opening location selection
+    final wasConnected = isConnected;
     
     final result = await Navigator.push(
       context,
@@ -1052,6 +1045,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (result != null && result is Map) {
       final server = result['server'] as Map<String, dynamic>?;
+      final newServerId = server?['id'];
+      final currentServerId = _selectedServer?['id'];
+      
+      // Check if user selected a different server
+      final bool isDifferentServer = newServerId != currentServerId;
+      
       setState(() {
         currentLocation = result['location'];
         currentFlag = result['flag'] ?? '🏳️';
@@ -1065,6 +1064,49 @@ class _HomeScreenState extends State<HomeScreen> {
       if (address != null) {
         _speedService.updatePingForServer(address);
       }
+      
+      // If was connected and selected a different server, auto-reconnect to new server
+      if (wasConnected && isDifferentServer && server != null) {
+        debugPrint('🔄 Server changed while connected - reconnecting to new server...');
+        
+        // Disconnect from current server first
+        await _disconnectVpn();
+        
+        // Small delay to ensure clean disconnect
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Connect to new server
+        if (mounted && _userManager.remainingSeconds.value > 0) {
+          _startVpnConnection();
+        }
+      }
+    }
+  }
+  
+  /// Disconnect VPN without toggling UI state (for server switching)
+  Future<void> _disconnectVpn() async {
+    debugPrint('🔌 Disconnecting VPN for server switch...');
+    
+    // Stop timer and notification
+    _userManager.stopTimer();
+    await _stopNotification();
+    
+    // Disconnect VPN
+    try {
+      await _flutterV2ray.stopV2Ray();
+    } catch (e) {
+      debugPrint('❌ Error disconnecting VPN: $e');
+    }
+    
+    // Stop speed monitoring
+    await _speedService.stopSpeedMonitoring();
+    
+    // Update state
+    if (mounted) {
+      setState(() {
+        isConnected = false;
+        isConnecting = false;
+      });
     }
   }
 
@@ -1312,10 +1354,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: Column(
                           children: [
-                            // Selected Location
+                            // Selected Location - tap to change server (works even when connected)
                             GestureDetector(
                               behavior: HitTestBehavior.opaque,
-                              onTap: isConnected ? null : () {
+                              onTap: isConnecting ? null : () {
                                 _openLocationSelection();
                               },
                               child: Row(
@@ -1357,7 +1399,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                               size: 18,
                                             ),
                                   const SizedBox(width: 8),
-                                  if (!isConnected)
+                                  if (!isConnecting) // Show arrow when not connecting (can switch servers)
                                     Icon(Icons.arrow_forward_ios, size: 14, color: subTextColor),
                                 ],
                               ),

@@ -8,6 +8,7 @@ import '../services/sdui_service.dart';
 import '../services/localization_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 
 class SplitTunnelingScreen extends StatefulWidget {
   const SplitTunnelingScreen({super.key});
@@ -59,6 +60,8 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
     _selectedOption = _userManager.splitTunnelingMode.value;
     _loadSavedApps();
     _loadServerConfig();
+    // Preload installed apps in background
+    _fetchInstalledApps();
   }
 
   Future<void> _loadSavedApps() async {
@@ -162,9 +165,10 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
     if (_installedApps.isNotEmpty) return;
 
     try {
+      // First, load apps without icons (much faster)
       List<device.AppInfo> apps = await InstalledApps.getInstalledApps(
         excludeSystemApps: false,
-        withIcon: true,
+        withIcon: false, // Load without icons first for faster initial load
       );
 
       if (mounted) {
@@ -173,16 +177,73 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
               .map((app) => my_app.AppInfo(
                     app.name ?? '',
                     app.packageName ?? '',
-                    app.icon,
+                    null, // Icons will be loaded lazily
                     isSystemApp: false,
                   ))
               .toList();
           
           _installedApps.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         });
+        
+        // Load icons asynchronously in background after UI is shown
+        _loadAppIconsInBackground();
       }
     } catch (e) {
       debugPrint("Error fetching apps: $e");
+    }
+  }
+
+  Future<void> _loadAppIconsInBackground() async {
+    try {
+      // Load all apps with icons in background (non-blocking)
+      // This allows UI to show immediately while icons load
+      List<device.AppInfo> appsWithIcons = await InstalledApps.getInstalledApps(
+        excludeSystemApps: false,
+        withIcon: true,
+      );
+
+      if (!mounted) return;
+
+      // Create a map for quick lookup
+      final iconMap = <String, Uint8List?>{};
+      for (var app in appsWithIcons) {
+        iconMap[app.packageName ?? ''] = app.icon;
+      }
+
+      // Update icons in the existing list
+      setState(() {
+        _installedApps = _installedApps.map((app) {
+          final icon = iconMap[app.packageName];
+          if (icon != null) {
+            return my_app.AppInfo(
+              app.name,
+              app.packageName,
+              icon,
+              isSystemApp: app.isSystemApp,
+            );
+          }
+          return app;
+        }).toList();
+        
+        // Also update icons for saved apps
+        _selectedAppsForUsesVPN = _selectedAppsForUsesVPN.map((app) {
+          final icon = iconMap[app.packageName];
+          if (icon != null) {
+            return my_app.AppInfo(app.name, app.packageName, icon, isSystemApp: app.isSystemApp);
+          }
+          return app;
+        }).toList();
+        
+        _selectedAppsForBypassVPN = _selectedAppsForBypassVPN.map((app) {
+          final icon = iconMap[app.packageName];
+          if (icon != null) {
+            return my_app.AppInfo(app.name, app.packageName, icon, isSystemApp: app.isSystemApp);
+          }
+          return app;
+        }).toList();
+      });
+    } catch (e) {
+      debugPrint("Error loading app icons: $e");
     }
   }
 
@@ -335,24 +396,15 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
   }
 
   Future<void> _openAppSelection(bool isUsesVPN) async {
-    if (_installedApps.isEmpty) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-      await _fetchInstalledApps();
-      if (mounted) Navigator.pop(context);
-    }
-
     if (!mounted) return;
-
+    
+    // Navigate directly - AppSelectionScreen will show skeleton and load apps itself
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => my_app.AppSelectionScreen(
           title: isUsesVPN ? 'Select Apps to Use VPN' : 'Select Apps to Bypass VPN',
-          allApps: _installedApps,
+          allApps: _installedApps, // May be empty - AppSelectionScreen will handle it
           selectedApps: isUsesVPN ? _selectedAppsForUsesVPN : _selectedAppsForBypassVPN,
         ),
       ),
@@ -364,6 +416,16 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
           _selectedAppsForUsesVPN = result;
         } else {
           _selectedAppsForBypassVPN = result;
+        }
+        
+        // Also update _installedApps with the latest icons from result
+        for (var resultApp in result) {
+          if (resultApp.icon != null) {
+            final index = _installedApps.indexWhere((a) => a.packageName == resultApp.packageName);
+            if (index >= 0) {
+              _installedApps[index] = resultApp;
+            }
+          }
         }
       });
       
@@ -388,11 +450,16 @@ class _SplitTunnelingScreenState extends State<SplitTunnelingScreen> {
     final labels = _config['labels'] ?? {};
 
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         setState(() {
           _selectedOption = index;
         });
         _userManager.splitTunnelingMode.value = index;
+        
+        // Save mode to SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('split_tunneling_mode', index);
+        
         _saveSelectedApps(); // Save when mode changes
       },
       child: Container(

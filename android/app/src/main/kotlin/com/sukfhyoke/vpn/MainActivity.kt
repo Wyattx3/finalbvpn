@@ -270,20 +270,17 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun updateNotificationTime(newRemainingSeconds: Long) {
-        // Only update if there's a significant difference (more than 60 seconds)
-        // This handles admin adjustments
-        if (Math.abs(newRemainingSeconds - remainingSeconds) > 60) {
-            remainingSeconds = newRemainingSeconds
-            if (isRunning) {
-                updateNotification()
-            }
+        // Always sync with Flutter's time (Flutter is the source of truth)
+        remainingSeconds = newRemainingSeconds
+        if (isRunning) {
+            updateNotificationDisplay()
         }
     }
 
     private fun updateShowTimer(timerVisible: Boolean) {
         showTimer = timerVisible
         if (isRunning) {
-            updateNotification()
+            updateNotificationDisplay()
         }
     }
 
@@ -296,7 +293,9 @@ class MainActivity : FlutterActivity() {
                     return
                 }
                 Handler(Looper.getMainLooper()).post {
-                    updateNotification()
+                    // Just refresh the display, don't decrement
+                    // Flutter handles the countdown and syncs via updateNotificationTime
+                    updateNotificationDisplay()
                 }
             }
         }, 0, 1000)
@@ -311,18 +310,16 @@ class MainActivity : FlutterActivity() {
         currentUploadSpeed = upload
         currentPing = ping
         if (isRunning) {
-            updateNotification()
+            updateNotificationDisplay()
         }
     }
 
-    private fun updateNotification() {
+    // Display-only function - does NOT decrement time
+    // Flutter handles countdown and syncs via updateNotificationTime
+    private fun updateNotificationDisplay() {
         if (!hasNotificationPermission()) return
         
         try {
-            if (remainingSeconds > 0) {
-                remainingSeconds--
-            }
-
             val h = remainingSeconds / 3600
             val m = (remainingSeconds % 3600) / 60
             val s = remainingSeconds % 60

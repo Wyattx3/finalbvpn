@@ -5,6 +5,7 @@ import 'home_screen.dart';
 import 'onboarding_screen.dart';
 import '../services/sdui_service.dart';
 import '../services/firebase_service.dart';
+import '../services/ad_service.dart';
 import '../user_manager.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -76,15 +77,26 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       _updateProgress(0.6, 'Connection error');
     }
 
-    // Step 3: Load servers (90%)
+    // Step 3: Load servers (80%)
     _updateProgress(0.7, 'Loading servers...');
     try {
       final servers = await _firebaseService.getServers();
       debugPrint('📡 Loaded ${servers.length} servers from Firebase');
-      _updateProgress(0.9, '${servers.length} servers ready');
+      _updateProgress(0.8, '${servers.length} servers ready');
     } catch (e) {
       debugPrint('⚠️ Servers error: $e');
-      _updateProgress(0.9, 'Offline mode');
+      _updateProgress(0.8, 'Offline mode');
+    }
+
+    // Step 4: Initialize Ads SDK (95%)
+    _updateProgress(0.85, 'Loading ads...');
+    try {
+      await AdService().initialize();
+      debugPrint('✅ Ads SDK initialized');
+      _updateProgress(0.95, 'Ads ready');
+    } catch (e) {
+      debugPrint('⚠️ Ads SDK error: $e');
+      _updateProgress(0.95, 'Continuing...');
     }
 
     // Complete (100%)

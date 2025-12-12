@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, Filter, Ban, Coins, CheckCircle, Smartphone, Globe, Activity, X, History, PlayCircle, Wallet, Download, Calendar, AlertTriangle, RefreshCw, Zap, Clock, Timer } from "lucide-react";
+import { Search, Filter, Ban, Coins, CheckCircle, Smartphone, Globe, Activity, X, History, PlayCircle, Wallet, Download, Calendar, AlertTriangle, RefreshCw, Zap, Clock, Timer, Trash2 } from "lucide-react";
 import { useRealtimeDevices, RealtimeDevice } from "@/hooks/useRealtimeDevices";
 
 interface UserDevice extends RealtimeDevice {
@@ -73,6 +73,10 @@ export default function UsersPage() {
   // Ban Confirmation State
   const [userToBan, setUserToBan] = useState<UserDevice | null>(null);
   const [showBanConfirmModal, setShowBanConfirmModal] = useState(false);
+
+  // Delete Confirmation State
+  const [userToDelete, setUserToDelete] = useState<UserDevice | null>(null);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
 
   // History Filters
   const [historyFilterType, setHistoryFilterType] = useState<'all' | 'earned' | 'used' | 'admin'>('all');
@@ -177,6 +181,36 @@ export default function UsersPage() {
       }
       setShowBanConfirmModal(false);
       setUserToBan(null);
+    }
+  };
+
+  const initiateDelete = (user: UserDevice) => {
+    setUserToDelete(user);
+    setShowDeleteConfirmModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (userToDelete) {
+      try {
+        const response = await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'delete',
+            deviceId: userToDelete.id,
+          }),
+        });
+        const data = await response.json();
+        if (data.success) {
+          console.log(`✅ Device ${userToDelete.id} deleted successfully`);
+        } else {
+          console.error('Failed to delete device:', data.error);
+        }
+      } catch (error) {
+        console.error('Failed to delete device:', error);
+      }
+      setShowDeleteConfirmModal(false);
+      setUserToDelete(null);
     }
   };
 
@@ -471,6 +505,13 @@ export default function UsersPage() {
                     >
                       {user.status !== 'banned' ? <Ban className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                     </button>
+                    <button 
+                      onClick={() => initiateDelete(user)}
+                      className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                      title="Delete Device Permanently"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -615,6 +656,50 @@ export default function UsersPage() {
                 }`}
               >
                 {userToBan.status === 'banned' ? 'Yes, Unban' : 'Yes, Ban Device'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirmModal && userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 dark:border dark:border-gray-700">
+            <div className="mb-4 flex items-center gap-3 text-red-600 dark:text-red-400">
+              <div className="rounded-full bg-red-100 p-2 dark:bg-red-900/30">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Delete Device Permanently?
+              </h2>
+            </div>
+            
+            <div className="mb-4 rounded-lg bg-gray-50 p-3 dark:bg-gray-700/50">
+              <p className="text-sm font-medium text-gray-900 dark:text-white">{userToDelete.deviceModel}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{userToDelete.id}</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Balance: {userToDelete.balance} Points</p>
+            </div>
+            
+            <p className="mb-6 text-sm text-red-500 dark:text-red-400">
+              ⚠️ This action cannot be undone. All device data and activity logs will be permanently deleted.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirmModal(false);
+                  setUserToDelete(null);
+                }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Yes, Delete Permanently
               </button>
             </div>
           </div>
