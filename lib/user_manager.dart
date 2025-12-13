@@ -202,6 +202,10 @@ class UserManager {
   StreamSubscription<int>? _vpnTimeSubscription;
   Timer? _vpnSyncTimer; // Periodic sync timer
   bool _isTimerRunning = false; // Track if local timer is actively running
+  
+  // Server-side session tracking
+  String? _currentServerId; // Current connected server ID
+  bool _hasActiveServerSession = false; // Track if server session is active
 
   // Split Tunneling Mode: 0 = Disable, 1 = Uses VPN, 2 = Bypass VPN
   final ValueNotifier<int> splitTunnelingMode = ValueNotifier(0);
@@ -449,11 +453,34 @@ class UserManager {
   // Get remaining cooldown time (synced from Firebase)
   Duration get cooldownTime => Duration(seconds: cooldownRemaining.value);
 
-  // Start Countdown - Syncs to Firebase every 30 seconds
-  void startTimer() {
+  // Start Countdown with Server-Side Session Tracking
+  // This ensures time is tracked on server even if app crashes
+  Future<bool> startTimer({String? serverId}) async {
     // Cancel any existing timers first
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
+    
+    // Store server ID for session tracking
+    _currentServerId = serverId ?? 'unknown';
+    
+    // Start server-side session tracking
+    debugPrint('⏱️ Starting server-side VPN session...');
+    final sessionResult = await _firebase.startVpnSession(_currentServerId!);
+    
+    if (sessionResult['success'] != true) {
+      debugPrint('❌ Failed to start server session: ${sessionResult['error']}');
+      // Still allow local timer to work as fallback
+      if (sessionResult['error'] == 'no_time') {
+        remainingSeconds.value = 0;
+        return false;
+      }
+    } else {
+      _hasActiveServerSession = true;
+      // Update local remaining seconds from server
+      final serverSeconds = (sessionResult['remainingSeconds'] as num?)?.toInt() ?? remainingSeconds.value;
+      remainingSeconds.value = serverSeconds;
+      debugPrint('✅ Server session started. Time: $serverSeconds seconds');
+    }
     
     // Mark timer as running - this prevents Firebase listener from interfering
     _isTimerRunning = true;
@@ -468,8 +495,8 @@ class UserManager {
         _isTimerRunning = false;
         _timer?.cancel();
         _vpnSyncTimer?.cancel();
-        // Sync final time to Firebase
-        _firebase.syncVpnTime(0);
+        // End server session
+        _endServerSession();
         debugPrint('⏱️ Timer expired - auto disconnecting');
         if (onTimeExpired != null) {
           onTimeExpired!(); // Auto disconnect
@@ -477,31 +504,71 @@ class UserManager {
       }
     });
     
-    // Sync to Firebase every 30 seconds to reduce write operations
+    // Send heartbeat to server every 30 seconds
+    // This keeps session alive and syncs current time
     _vpnSyncTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (remainingSeconds.value > 0 && _isTimerRunning) {
-        _firebase.syncVpnTime(remainingSeconds.value);
-        debugPrint('⏱️ Synced to Firebase: ${remainingSeconds.value} seconds');
+        _firebase.sendVpnSessionHeartbeat(remainingSeconds.value);
+        debugPrint('💓 Session heartbeat: ${remainingSeconds.value} seconds');
       }
     });
     
-    debugPrint('⏱️ Timer started successfully');
+    debugPrint('⏱️ Timer started successfully with server-side tracking');
+    return true;
+  }
+  
+  // End server session (internal helper)
+  Future<void> _endServerSession() async {
+    if (!_hasActiveServerSession) return;
+    
+    try {
+      final result = await _firebase.endVpnSession();
+      _hasActiveServerSession = false;
+      
+      if (result['success'] == true) {
+        // Update local time from server calculation
+        final newRemaining = (result['remainingSeconds'] as num?)?.toInt() ?? remainingSeconds.value;
+        remainingSeconds.value = newRemaining;
+        debugPrint('✅ Server session ended. Remaining: $newRemaining seconds');
+      }
+    } catch (e) {
+      debugPrint('❌ Error ending server session: $e');
+    }
   }
 
-  // Stop Countdown and sync final time to Firebase
-  void stopTimer() {
+  // Stop Countdown and end server session
+  Future<void> stopTimer() async {
     // Mark timer as stopped FIRST - allows Firebase listener to update again
     _isTimerRunning = false;
     
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
     
-    // Sync current time to Firebase when stopping
-    if (remainingSeconds.value > 0) {
-      _firebase.syncVpnTime(remainingSeconds.value);
-    }
+    // End server-side session (this will calculate and deduct elapsed time on server)
+    await _endServerSession();
     
-    debugPrint('⏱️ Timer stopped, synced ${remainingSeconds.value} seconds to Firebase');
+    debugPrint('⏱️ Timer stopped, server session ended. Remaining: ${remainingSeconds.value} seconds');
+  }
+  
+  /// Check for crashed session on app startup
+  /// Call this when app initializes to handle crash recovery
+  Future<Map<String, dynamic>> checkCrashedSession() async {
+    try {
+      final result = await _firebase.checkAndRecoverCrashedSession();
+      
+      if (result['hadCrashedSession'] == true) {
+        // Update local remaining seconds
+        final newRemaining = (result['newRemainingSeconds'] as num?)?.toInt() ?? remainingSeconds.value;
+        remainingSeconds.value = newRemaining;
+        
+        debugPrint('🔄 Recovered from crash. Deducted: ${result['deductedSeconds']}s, Remaining: $newRemaining seconds');
+      }
+      
+      return result;
+    } catch (e) {
+      debugPrint('❌ Error checking crashed session: $e');
+      return {'hadCrashedSession': false, 'error': e.toString()};
+    }
   }
 
   // Helper to format time

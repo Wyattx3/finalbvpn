@@ -889,6 +889,224 @@ class FirebaseService {
     }
   }
 
+  // ========== SERVER-SIDE VPN SESSION TRACKING ==========
+  // This ensures VPN time is tracked on server even if app crashes
+  
+  /// Start VPN session on server
+  /// Records session start time on server so we can calculate elapsed time
+  /// even if app crashes
+  Future<Map<String, dynamic>> startVpnSession(String serverId) async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      // First, check if there's an existing active session (from app crash)
+      await _handleCrashedSession(deviceId);
+      
+      // Get current remaining time
+      final deviceDoc = await _firestore.collection('devices').doc(deviceId).get();
+      final currentSeconds = (deviceDoc.data()?['vpnRemainingSeconds'] as num?)?.toInt() ?? 0;
+      
+      if (currentSeconds <= 0) {
+        debugPrint('❌ No VPN time remaining');
+        return {'success': false, 'error': 'no_time', 'remainingSeconds': 0};
+      }
+      
+      // Create active session document
+      await _firestore.collection('vpn_active_sessions').doc(deviceId).set({
+        'deviceId': deviceId,
+        'serverId': serverId,
+        'sessionStartTime': FieldValue.serverTimestamp(),
+        'startRemainingSeconds': currentSeconds,
+        'isActive': true,
+        'lastHeartbeat': FieldValue.serverTimestamp(),
+      });
+      
+      // Update device status
+      await _firestore.collection('devices').doc(deviceId).update({
+        'status': 'vpn_connected',
+        'currentServerId': serverId,
+        'vpnSessionActive': true,
+        'vpnSessionStartTime': FieldValue.serverTimestamp(),
+      });
+      
+      debugPrint('✅ VPN session started on server. Time: $currentSeconds seconds');
+      return {
+        'success': true, 
+        'remainingSeconds': currentSeconds,
+        'sessionId': deviceId,
+      };
+    } catch (e) {
+      debugPrint('❌ Error starting VPN session: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+  
+  /// End VPN session on server
+  /// Calculates elapsed time and deducts from remaining time
+  Future<Map<String, dynamic>> endVpnSession() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      // Get active session
+      final sessionDoc = await _firestore.collection('vpn_active_sessions').doc(deviceId).get();
+      
+      if (!sessionDoc.exists || sessionDoc.data()?['isActive'] != true) {
+        debugPrint('⚠️ No active VPN session found');
+        return {'success': true, 'message': 'no_active_session'};
+      }
+      
+      final sessionData = sessionDoc.data()!;
+      final startTime = sessionData['sessionStartTime'] as Timestamp?;
+      final startRemainingSeconds = (sessionData['startRemainingSeconds'] as num?)?.toInt() ?? 0;
+      
+      if (startTime == null) {
+        debugPrint('⚠️ Session start time not found');
+        return {'success': false, 'error': 'invalid_session'};
+      }
+      
+      // Calculate elapsed time using server time
+      final now = Timestamp.now();
+      final elapsedSeconds = now.seconds - startTime.seconds;
+      
+      // Calculate new remaining time
+      int newRemainingSeconds = startRemainingSeconds - elapsedSeconds;
+      if (newRemainingSeconds < 0) newRemainingSeconds = 0;
+      
+      debugPrint('⏱️ Session ended. Elapsed: ${elapsedSeconds}s, New remaining: ${newRemainingSeconds}s');
+      
+      // Update remaining time in device document
+      await _firestore.collection('devices').doc(deviceId).update({
+        'vpnRemainingSeconds': newRemainingSeconds,
+        'status': 'online',
+        'vpnSessionActive': false,
+        'lastVpnDisconnect': FieldValue.serverTimestamp(),
+      });
+      
+      // Mark session as ended (keep for history)
+      await _firestore.collection('vpn_active_sessions').doc(deviceId).update({
+        'isActive': false,
+        'sessionEndTime': FieldValue.serverTimestamp(),
+        'elapsedSeconds': elapsedSeconds,
+        'endRemainingSeconds': newRemainingSeconds,
+      });
+      
+      return {
+        'success': true,
+        'elapsedSeconds': elapsedSeconds,
+        'remainingSeconds': newRemainingSeconds,
+      };
+    } catch (e) {
+      debugPrint('❌ Error ending VPN session: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+  
+  /// Send heartbeat to keep session alive
+  /// Also syncs current remaining time
+  Future<void> sendVpnSessionHeartbeat(int currentRemainingSeconds) async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      await _firestore.collection('vpn_active_sessions').doc(deviceId).update({
+        'lastHeartbeat': FieldValue.serverTimestamp(),
+        'currentRemainingSeconds': currentRemainingSeconds,
+      });
+      
+      // Also update device
+      await _firestore.collection('devices').doc(deviceId).update({
+        'vpnRemainingSeconds': currentRemainingSeconds,
+        'lastHeartbeat': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      // Silently fail - heartbeat is not critical
+      debugPrint('⚠️ Heartbeat failed: $e');
+    }
+  }
+  
+  /// Handle crashed session - check if there's an active session from app crash
+  /// and deduct the elapsed time
+  Future<Map<String, dynamic>> _handleCrashedSession(String deviceId) async {
+    try {
+      final sessionDoc = await _firestore.collection('vpn_active_sessions').doc(deviceId).get();
+      
+      if (!sessionDoc.exists || sessionDoc.data()?['isActive'] != true) {
+        return {'hadCrashedSession': false};
+      }
+      
+      final sessionData = sessionDoc.data()!;
+      final startTime = sessionData['sessionStartTime'] as Timestamp?;
+      final startRemainingSeconds = (sessionData['startRemainingSeconds'] as num?)?.toInt() ?? 0;
+      
+      if (startTime == null) {
+        // Invalid session, just clear it
+        await _firestore.collection('vpn_active_sessions').doc(deviceId).delete();
+        return {'hadCrashedSession': false};
+      }
+      
+      // Calculate elapsed time since crash
+      final now = Timestamp.now();
+      final elapsedSeconds = now.seconds - startTime.seconds;
+      
+      // Calculate new remaining time
+      int newRemainingSeconds = startRemainingSeconds - elapsedSeconds;
+      if (newRemainingSeconds < 0) newRemainingSeconds = 0;
+      
+      debugPrint('🔄 Recovered from crashed session. Elapsed since crash: ${elapsedSeconds}s');
+      debugPrint('🔄 Time before crash: ${startRemainingSeconds}s, Time after deduction: ${newRemainingSeconds}s');
+      
+      // Update remaining time
+      await _firestore.collection('devices').doc(deviceId).update({
+        'vpnRemainingSeconds': newRemainingSeconds,
+        'vpnSessionActive': false,
+        'crashRecoveryTime': FieldValue.serverTimestamp(),
+      });
+      
+      // Mark old session as crashed/ended
+      await _firestore.collection('vpn_active_sessions').doc(deviceId).update({
+        'isActive': false,
+        'sessionEndTime': FieldValue.serverTimestamp(),
+        'elapsedSeconds': elapsedSeconds,
+        'endRemainingSeconds': newRemainingSeconds,
+        'endReason': 'crash_recovery',
+      });
+      
+      return {
+        'hadCrashedSession': true,
+        'elapsedSeconds': elapsedSeconds,
+        'deductedSeconds': elapsedSeconds,
+        'newRemainingSeconds': newRemainingSeconds,
+      };
+    } catch (e) {
+      debugPrint('❌ Error handling crashed session: $e');
+      return {'hadCrashedSession': false, 'error': e.toString()};
+    }
+  }
+  
+  /// Check for crashed session on app startup
+  /// Returns the deducted time info if there was a crash
+  Future<Map<String, dynamic>> checkAndRecoverCrashedSession() async {
+    final deviceId = await getDeviceId();
+    return await _handleCrashedSession(deviceId);
+  }
+  
+  /// Get current session info (for debugging/display)
+  Future<Map<String, dynamic>?> getActiveSession() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      final sessionDoc = await _firestore.collection('vpn_active_sessions').doc(deviceId).get();
+      
+      if (!sessionDoc.exists || sessionDoc.data()?['isActive'] != true) {
+        return null;
+      }
+      
+      return sessionDoc.data();
+    } catch (e) {
+      debugPrint('❌ Error getting active session: $e');
+      return null;
+    }
+  }
+
   // ========== SERVERS ==========
   
   /// Get all servers from Firestore

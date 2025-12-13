@@ -166,6 +166,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       print('🔥 Loading Firebase data...');
       
+      // Check for crashed VPN session (if app crashed while VPN was connected)
+      final crashResult = await _userManager.checkCrashedSession();
+      if (crashResult['hadCrashedSession'] == true) {
+        final deducted = crashResult['deductedSeconds'] ?? 0;
+        debugPrint('🔄 Recovered from crash - deducted $deducted seconds');
+      }
+      
       // Fetch servers from Firebase
       final servers = await _firebaseService.getServers();
       
@@ -633,8 +640,14 @@ class _HomeScreenState extends State<HomeScreen> {
         isConnected = false;
       });
       
-      // Stop timer and notification immediately (non-blocking)
-      _userManager.stopTimer();
+      // Stop timer with server-side session ending (calculates elapsed time on server)
+      // This is critical for anti-cheat - server will calculate exact time used
+      _userManager.stopTimer().then((_) {
+        debugPrint('⏱️ Timer stopped with server session');
+      }).catchError((e) {
+        debugPrint('❌ Error stopping timer: $e');
+      });
+      
       _stopNotification().catchError((e) {
         debugPrint('❌ Error stopping notification: $e');
       });
@@ -655,12 +668,6 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('📱 Speed monitoring stopped, connection count decremented');
       }).catchError((e) {
         debugPrint('❌ Error stopping speed monitoring: $e');
-      });
-      
-      _firebaseService.updateDeviceStatus('online').then((_) {
-        debugPrint('📱 Device status updated to online (VPN disconnected)');
-      }).catchError((e) {
-        debugPrint('❌ Error updating device status: $e');
       });
     } else {
       // Check network connection before connecting
@@ -703,8 +710,13 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
     
-    // Stop timer and notification immediately (non-blocking)
-    _userManager.stopTimer();
+    // Stop timer with server-side session ending
+    _userManager.stopTimer().then((_) {
+      debugPrint('⏱️ Timer stopped with server session (auto-disconnect)');
+    }).catchError((e) {
+      debugPrint('❌ Error stopping timer: $e');
+    });
+    
     _stopNotification().catchError((e) {
       debugPrint('❌ Error stopping notification: $e');
     });
@@ -723,10 +735,6 @@ class _HomeScreenState extends State<HomeScreen> {
     // Run Firebase operations in background
     _speedService.stopSpeedMonitoring().catchError((e) {
       debugPrint('❌ Error stopping speed monitoring: $e');
-    });
-    
-    _firebaseService.updateDeviceStatus('online').catchError((e) {
-      debugPrint('❌ Error updating device status: $e');
     });
   }
 
@@ -845,23 +853,42 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         
         if (mounted && !_connectionCancelled) {
-          _userManager.startTimer();
+          // Get server ID for session tracking
+          final serverId = _selectedServer?['id'] as String? ?? 'unknown';
+          
+          // Start timer with server-side session tracking
+          final timerStarted = await _userManager.startTimer(serverId: serverId);
+          if (!timerStarted) {
+            // No VPN time remaining
+            debugPrint('❌ No VPN time - disconnecting');
+            await _flutterV2ray.stopV2Ray();
+            if (mounted) {
+              setState(() {
+                isConnecting = false;
+              });
+              showMessageDialog(
+                context,
+                message: 'Time expired! Watch ads to reconnect.',
+                type: MessageType.warning,
+                title: 'No Time Remaining',
+              );
+            }
+            return;
+          }
+          
           _startNotification();
           
           // Track this as the last connected server (for Recent Location feature)
           _lastConnectedServer = _selectedServer;
           debugPrint('📍 Tracking ${_selectedServer?['name']} as last connected server');
           
-          // Update device status to 'vpn_connected' (online with VPN)
-          await _firebaseService.updateDeviceStatus('vpn_connected');
-          debugPrint('📱 Device status updated to vpn_connected');
+          // Note: Device status is now updated by startVpnSession in user_manager
           
           // Start speed monitoring (Firebase bandwidth tracking)
           final deviceId = await _firebaseService.getDeviceId();
-          final serverId = _selectedServer?['id'] as String? ?? 'unknown';
           _speedService.startSpeedMonitoring(serverId, deviceId, serverAddress: serverAddress);
           
-          debugPrint('✅ Connected via $protocolName');
+          debugPrint('✅ Connected via $protocolName with server-side session tracking');
         }
       } else {
         // Permission denied
@@ -1087,8 +1114,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _disconnectVpn() async {
     debugPrint('🔌 Disconnecting VPN for server switch...');
     
-    // Stop timer and notification
-    _userManager.stopTimer();
+    // Stop timer with server-side session ending
+    await _userManager.stopTimer();
     await _stopNotification();
     
     // Disconnect VPN
