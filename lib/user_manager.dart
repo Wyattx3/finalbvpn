@@ -201,6 +201,7 @@ class UserManager {
   final ValueNotifier<int> remainingSeconds = ValueNotifier(0);
   StreamSubscription<int>? _vpnTimeSubscription;
   Timer? _vpnSyncTimer; // Periodic sync timer
+  Timer? _vpnHeartbeatTimer; // Server heartbeat timer
   bool _isTimerRunning = false; // Track if local timer is actively running
 
   // Split Tunneling Mode: 0 = Disable, 1 = Uses VPN, 2 = Bypass VPN
@@ -325,6 +326,9 @@ class UserManager {
           _isTimerRunning = false;
           _timer?.cancel();
           _vpnSyncTimer?.cancel();
+          _vpnHeartbeatTimer?.cancel();
+          // Stop server session
+          _firebase.stopVpnSession();
           if (onTimeExpired != null) {
             onTimeExpired!();
           }
@@ -346,7 +350,25 @@ class UserManager {
     
     // Initial balance fetch
     _fetchBalance();
-    _fetchVpnTime();
+    
+    // 🔥 Recover any stale VPN sessions first, then fetch VPN time
+    // This handles cases where the app was killed while VPN was connected
+    _recoverAndFetchVpnTime();
+  }
+  
+  /// Recover stale VPN session and then fetch VPN time
+  /// If app was killed while VPN was connected, this deducts the elapsed time
+  Future<void> _recoverAndFetchVpnTime() async {
+    try {
+      // Check for and recover any stale sessions
+      final recoveredSeconds = await _firebase.recoverStaleVpnSession();
+      remainingSeconds.value = recoveredSeconds;
+      debugPrint('⏱️ VPN time after recovery: $recoveredSeconds seconds');
+    } catch (e) {
+      debugPrint('❌ Error recovering VPN session: $e');
+      // Fallback to normal fetch
+      await _fetchVpnTime();
+    }
   }
 
   Future<void> _fetchBalance() async {
@@ -450,14 +472,21 @@ class UserManager {
   Duration get cooldownTime => Duration(seconds: cooldownRemaining.value);
 
   // Start Countdown - Syncs to Firebase every 30 seconds
+  // Also starts server-side session tracking
   void startTimer() {
     // Cancel any existing timers first
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
+    _vpnHeartbeatTimer?.cancel();
     
     // Mark timer as running - this prevents Firebase listener from interfering
     _isTimerRunning = true;
     debugPrint('⏱️ Timer starting... remaining: ${remainingSeconds.value} seconds');
+    
+    // 🔥 Start server-side VPN session tracking
+    // This records the connection start time on server so time can be calculated
+    // even if the app crashes or is killed without proper disconnect
+    _firebase.startVpnSession();
     
     // Local countdown timer (every second)
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -468,8 +497,9 @@ class UserManager {
         _isTimerRunning = false;
         _timer?.cancel();
         _vpnSyncTimer?.cancel();
-        // Sync final time to Firebase
-        _firebase.syncVpnTime(0);
+        _vpnHeartbeatTimer?.cancel();
+        // Stop server session and sync final time
+        _firebase.stopVpnSession();
         debugPrint('⏱️ Timer expired - auto disconnecting');
         if (onTimeExpired != null) {
           onTimeExpired!(); // Auto disconnect
@@ -485,23 +515,32 @@ class UserManager {
       }
     });
     
-    debugPrint('⏱️ Timer started successfully');
+    // 🔥 Send heartbeat every 30 seconds to server
+    // This helps detect stale sessions when app crashes
+    _vpnHeartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (_isTimerRunning) {
+        _firebase.sendVpnHeartbeat();
+      }
+    });
+    
+    debugPrint('⏱️ Timer started successfully (with server-side tracking)');
   }
 
   // Stop Countdown and sync final time to Firebase
+  // Also stops server-side session tracking
   void stopTimer() {
     // Mark timer as stopped FIRST - allows Firebase listener to update again
     _isTimerRunning = false;
     
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
+    _vpnHeartbeatTimer?.cancel();
     
-    // Sync current time to Firebase when stopping
-    if (remainingSeconds.value > 0) {
-      _firebase.syncVpnTime(remainingSeconds.value);
-    }
+    // 🔥 Stop server-side VPN session
+    // This calculates elapsed time on server and deducts from remaining
+    _firebase.stopVpnSession();
     
-    debugPrint('⏱️ Timer stopped, synced ${remainingSeconds.value} seconds to Firebase');
+    debugPrint('⏱️ Timer stopped (server-side session ended)');
   }
 
   // Helper to format time
@@ -519,6 +558,7 @@ class UserManager {
   void dispose() {
     _timer?.cancel();
     _vpnSyncTimer?.cancel();
+    _vpnHeartbeatTimer?.cancel();
     _balanceSubscription?.cancel();
     _dailyStatsSubscription?.cancel();
     _vpnTimeSubscription?.cancel();

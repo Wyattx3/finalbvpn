@@ -889,6 +889,185 @@ class FirebaseService {
     }
   }
 
+  // ========== SERVER-SIDE VPN CONNECTION TRACKING ==========
+  
+  /// Start VPN connection session on server
+  /// Records the start time so server can calculate elapsed time even if app crashes
+  Future<void> startVpnSession() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      await _firestore.collection('devices').doc(deviceId).update({
+        'vpnSessionActive': true,
+        'vpnSessionStartTime': FieldValue.serverTimestamp(),
+        'vpnLastHeartbeat': FieldValue.serverTimestamp(),
+      });
+      debugPrint('🟢 VPN session started on server');
+    } catch (e) {
+      debugPrint('❌ Error starting VPN session: $e');
+    }
+  }
+  
+  /// Stop VPN connection session on server
+  /// Calculates elapsed time and deducts from remaining seconds
+  Future<void> stopVpnSession() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      // Use transaction to ensure atomic time deduction
+      await _firestore.runTransaction((transaction) async {
+        final docRef = _firestore.collection('devices').doc(deviceId);
+        final doc = await transaction.get(docRef);
+        
+        if (doc.exists) {
+          final data = doc.data();
+          if (data == null) return;
+          
+          final bool wasActive = data['vpnSessionActive'] == true;
+          
+          if (wasActive) {
+            final startTime = data['vpnSessionStartTime'] as Timestamp?;
+            final currentSeconds = (data['vpnRemainingSeconds'] as num?)?.toInt() ?? 0;
+            
+            if (startTime != null) {
+              // Calculate elapsed time since session started
+              final elapsed = DateTime.now().difference(startTime.toDate()).inSeconds;
+              final newSeconds = (currentSeconds - elapsed).clamp(0, currentSeconds);
+              
+              transaction.update(docRef, {
+                'vpnSessionActive': false,
+                'vpnRemainingSeconds': newSeconds,
+                'vpnSessionEndTime': FieldValue.serverTimestamp(),
+                'vpnLastSessionDuration': elapsed,
+              });
+              
+              debugPrint('🔴 VPN session stopped on server');
+              debugPrint('   - Elapsed: $elapsed seconds');
+              debugPrint('   - Remaining: $newSeconds seconds (was $currentSeconds)');
+            } else {
+              transaction.update(docRef, {
+                'vpnSessionActive': false,
+              });
+            }
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint('❌ Error stopping VPN session: $e');
+    }
+  }
+  
+  /// Send heartbeat for active VPN session
+  /// Helps server detect stale sessions (app crashed without proper disconnect)
+  Future<void> sendVpnHeartbeat() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      await _firestore.collection('devices').doc(deviceId).update({
+        'vpnLastHeartbeat': FieldValue.serverTimestamp(),
+      });
+      debugPrint('💓 VPN heartbeat sent');
+    } catch (e) {
+      debugPrint('❌ Error sending VPN heartbeat: $e');
+    }
+  }
+  
+  /// Check for stale VPN session (app crashed while connected)
+  /// If session was active but last heartbeat is too old, deduct the time
+  /// Call this on app startup to handle cases where app was killed while VPN was connected
+  Future<int> recoverStaleVpnSession() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      final result = await _firestore.runTransaction<int>((transaction) async {
+        final docRef = _firestore.collection('devices').doc(deviceId);
+        final doc = await transaction.get(docRef);
+        
+        if (!doc.exists) return 0;
+        
+        final data = doc.data();
+        if (data == null) return 0;
+        
+        final bool wasActive = data['vpnSessionActive'] == true;
+        if (!wasActive) {
+          // No stale session
+          return (data['vpnRemainingSeconds'] as num?)?.toInt() ?? 0;
+        }
+        
+        final startTime = data['vpnSessionStartTime'] as Timestamp?;
+        final lastHeartbeat = data['vpnLastHeartbeat'] as Timestamp?;
+        final currentSeconds = (data['vpnRemainingSeconds'] as num?)?.toInt() ?? 0;
+        
+        if (startTime == null) {
+          // Invalid session state - just mark as inactive
+          transaction.update(docRef, {'vpnSessionActive': false});
+          return currentSeconds;
+        }
+        
+        // Calculate time to deduct
+        // Use the later of startTime or lastHeartbeat as the reference
+        DateTime referenceTime = startTime.toDate();
+        if (lastHeartbeat != null && lastHeartbeat.toDate().isAfter(referenceTime)) {
+          referenceTime = lastHeartbeat.toDate();
+        }
+        
+        final elapsed = DateTime.now().difference(referenceTime).inSeconds;
+        
+        // Only deduct if session was stale (no heartbeat for more than 60 seconds)
+        // This prevents accidental deduction during normal reconnects
+        final timeSinceHeartbeat = lastHeartbeat != null 
+            ? DateTime.now().difference(lastHeartbeat.toDate()).inSeconds 
+            : elapsed;
+        
+        if (timeSinceHeartbeat > 60) {
+          // Session was stale - deduct elapsed time
+          final newSeconds = (currentSeconds - elapsed).clamp(0, currentSeconds);
+          
+          transaction.update(docRef, {
+            'vpnSessionActive': false,
+            'vpnRemainingSeconds': newSeconds,
+            'vpnStaleSessionRecovered': FieldValue.serverTimestamp(),
+            'vpnStaleSessionDeducted': elapsed,
+          });
+          
+          debugPrint('⚠️ Stale VPN session recovered!');
+          debugPrint('   - Time since heartbeat: $timeSinceHeartbeat seconds');
+          debugPrint('   - Deducted: $elapsed seconds');
+          debugPrint('   - New remaining: $newSeconds seconds');
+          
+          return newSeconds;
+        } else {
+          // Session was active recently - likely a quick app restart
+          // Just mark as inactive, don't deduct time
+          transaction.update(docRef, {'vpnSessionActive': false});
+          return currentSeconds;
+        }
+      });
+      
+      return result;
+    } catch (e) {
+      debugPrint('❌ Error recovering stale VPN session: $e');
+      // On error, try to get current time
+      return await getVpnRemainingSeconds();
+    }
+  }
+  
+  /// Check if there's an active VPN session on server
+  Future<bool> isVpnSessionActive() async {
+    final deviceId = await getDeviceId();
+    
+    try {
+      final doc = await _firestore.collection('devices').doc(deviceId).get();
+      if (doc.exists) {
+        return doc.data()?['vpnSessionActive'] == true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error checking VPN session: $e');
+      return false;
+    }
+  }
+
   // ========== SERVERS ==========
   
   /// Get all servers from Firestore
