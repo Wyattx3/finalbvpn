@@ -663,10 +663,19 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('❌ Error updating device status: $e');
       });
     } else {
+      // 🔥 IMMEDIATELY show connecting state for instant UI feedback
+      setState(() {
+        isConnecting = true;
+      });
+      
       // Check network connection before connecting
       final hasConnection = await NetworkUtils.hasInternetConnection();
       if (!hasConnection) {
+        // Reset connecting state if network check fails
         if (mounted) {
+          setState(() {
+            isConnecting = false;
+          });
           NetworkUtils.showNetworkErrorDialog(context, onRetry: _toggleConnection);
         }
         return;
@@ -675,6 +684,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_userManager.remainingSeconds.value > 0) {
         _startVpnConnection();
       } else {
+        // Reset connecting state before showing ad dialog
+        if (mounted) {
+          setState(() {
+            isConnecting = false;
+          });
+        }
         _showAdDialog();
       }
     }
@@ -746,6 +761,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final serverId = _selectedServer?['id'] as String?;
     if (serverId == null) {
       if (mounted) {
+        setState(() {
+          isConnecting = false;
+        });
         showMessageDialog(
           context,
           message: 'ကျေးဇူးပြု၍ server တစ်ခုကို ရွေးချယ်ပါ',
@@ -762,6 +780,9 @@ class _HomeScreenState extends State<HomeScreen> {
     
     if (serverStatus == 'maintenance') {
       if (mounted) {
+        setState(() {
+          isConnecting = false;
+        });
         showMessageDialog(
           context,
           message: 'ဤ server သည် maintenance လုပ်နေပါသည်။ တခြား server ကို ရွေးချယ်ပါ။',
@@ -773,6 +794,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (serverStatus == 'offline') {
       if (mounted) {
+        setState(() {
+          isConnecting = false;
+        });
         showMessageDialog(
           context,
           message: 'ဤ server သည် offline ဖြစ်နေပါသည်။ တခြား server ကို ရွေးချယ်ပါ။',
@@ -783,9 +807,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     
-    setState(() {
-      isConnecting = true;
-    });
+    // isConnecting already set to true in _toggleConnection()
     
     // Get port based on selected protocol
     final protocolName = _userManager.getProtocolName();
